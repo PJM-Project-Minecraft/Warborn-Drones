@@ -1,0 +1,41 @@
+modLoader = "javafml"
+loaderVersion = "[4,)"
+license = "All Rights Reserved"
+
+[[mods]]
+modId = "wrbdrones"
+version = "0.5"
+displayName = "WRBDrones"
+authors = "Liko"
+description = "WRBDrones addon for SuperbWarfare"
+
+[[mixins]]
+config = "mixins.wrbdrones.json"
+
+[[dependencies.wrbdrones]]
+modId = "neoforge"
+type = "required"
+versionRange = "[21.1.100,)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.wrbdrones]]
+modId = "minecraft"
+type = "required"
+versionRange = "[1.21.1,1.22)"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.wrbdrones]]
+modId = "superbwarfare"
+type = "required"
+versionRange = "*"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.wrbdrones]]
+modId = "geckolib"
+type = "required"
+versionRange = "[4.4.6,)"
+ordering = "NONE"
+side = "BOTH"

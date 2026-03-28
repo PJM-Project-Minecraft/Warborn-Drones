@@ -1,0 +1,41 @@
+modLoader = "javafml"
+loaderVersion = "${loader_version_range}"
+license = "${mod_license}"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+authors = "${mod_authors}"
+description = "${mod_description}"
+
+[[mixins]]
+config = "mixins.wrbdrones.json"
+
+[[dependencies.wrbdrones]]
+modId = "neoforge"
+type = "required"
+versionRange = "${neo_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.wrbdrones]]
+modId = "minecraft"
+type = "required"
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.wrbdrones]]
+modId = "superbwarfare"
+type = "required"
+versionRange = "*"
+ordering = "AFTER"
+side = "BOTH"
+
+[[dependencies.wrbdrones]]
+modId = "geckolib"
+type = "required"
+versionRange = "[4.4.6,)"
+ordering = "NONE"
+side = "BOTH"

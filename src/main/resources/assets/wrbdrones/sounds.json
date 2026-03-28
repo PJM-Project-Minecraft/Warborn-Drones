@@ -1,0 +1,113 @@
+{
+  "fpv_drone_engine": {
+    "sounds": [
+      {
+        "attenuation_distance": 48,
+        "stream": false,
+        "name": "wrbdrones:quad_engine_full_01"
+      }
+    ]
+  },
+  "fpv_drone_engine_int": {
+    "sounds": [
+      {
+        "attenuation_distance": 8,
+        "stream": false,
+        "name": "wrbdrones:quad_engine_full_int"
+      }
+    ]
+  },
+  "reb_placement_01": {
+    "sounds": [
+      {
+        "attenuation_distance": 16,
+        "stream": false,
+        "name": "wrbdrones:reb_placement_01"
+      }
+    ]
+  },
+  "reb_placement_02": {
+    "sounds": [
+      {
+        "attenuation_distance": 16,
+        "stream": false,
+        "name": "wrbdrones:reb_placement_02"
+      }
+    ]
+  },
+  "reb_toggle_on": {
+    "sounds": [
+      {
+        "attenuation_distance": 16,
+        "stream": false,
+        "name": "wrbdrones:weapon_zoomcycle01_03"
+      }
+    ]
+  },
+  "reb_toggle_off": {
+    "sounds": [
+      {
+        "attenuation_distance": 16,
+        "stream": false,
+        "name": "wrbdrones:weapon_zoomcycle01_04"
+      }
+    ]
+  },
+  "shahed136_start": {
+    "subtitle": "subtitles.wrbdrones.shahed136_start",
+    "sounds": [
+      {
+        "attenuation_distance": 300,
+        "stream": false,
+        "name": "wrbdrones:shahed136_start",
+        "volume": 1.2
+      }
+    ]
+  },
+  "shahed136_engine": {
+    "subtitle": "subtitles.wrbdrones.shahed136_engine",
+    "sounds": [
+      {
+        "attenuation_distance": 16,
+        "stream": false,
+        "name": "wrbdrones:shahed136_engine",
+        "volume": 1.0
+      }
+    ]
+  },
+  "shahed136_dive": {
+    "subtitle": "subtitles.wrbdrones.shahed136_dive",
+    "sounds": [
+      {
+        "attenuation_distance": 16,
+        "stream": false,
+        "name": "wrbdrones:shahed136_engine",
+        "volume": 1.5,
+        "pitch": 1.3
+      }
+    ]
+  },
+  "shahed136_engine_end": {
+    "subtitle": "subtitles.wrbdrones.shahed136_engine_end",
+    "sounds": [
+      {
+        "attenuation_distance": 300,
+        "stream": false,
+        "name": "wrbdrones:shahed136_engine_end",
+        "volume": 1.5
+      }
+    ]
+  },
+  "shahed136_flyby": {
+    "subtitle": "subtitles.wrbdrones.shahed136_flyby",
+    "sounds": [
+      {
+        "attenuation_distance": 600,
+        "stream": false,
+        "name": "wrbdrones:shahed136_engine",
+        "volume": 1.3,
+        "pitch": 1.1
+      }
+    ]
+  }
+}

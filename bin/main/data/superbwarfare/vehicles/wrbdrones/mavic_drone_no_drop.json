@@ -1,0 +1,9 @@
+{
+  "ID": "wrbdrones:mavic_drone_no_drop",
+  "Type": "Drone",
+  "EngineSound": "wrbdrones:fpv_drone_engine",
+  "EngineInfo": {
+    "EngineSoundVolume": 0.5
+  }
+}
+

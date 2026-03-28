@@ -1,0 +1,38 @@
+{
+  "Item": "warbornexplosives:rgo",
+  "Entity": "warbornexplosives:grenade",
+  "IsKamikaze": false,
+  "Count": 2,
+  "HitDamage": 270,
+  "ExplosionDamage": 130,
+  "ExplosionRadius": 10,
+  "DropData": {
+    "Item": {"id": "warbornexplosives:rgo", "count": 1},
+    "Fuse": 74,
+    "IsImpact": true,
+    "ShrapnelCount": 450,
+    "ShrapnelDamage": 16.0,
+    "ShrapnelRange": 100.0,
+    "BlastLethalRadius": 6.0,
+    "BlastMaxRadius": 20.0,
+    "ShrapnelSpeedCap": 4.0
+  },
+  "DisplayData": {
+    "Item": {"id": "warbornexplosives:rgo", "count": 1}
+  },
+  "Offset": [
+    0,
+    -0.04,
+    0.025
+  ],
+  "Rotation": [
+    90,
+    90,
+    0
+  ],
+  "Scale": [
+    0.5,
+    0.5,
+    0.5
+  ]
+}

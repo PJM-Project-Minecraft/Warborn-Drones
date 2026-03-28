@@ -1,0 +1,21 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "ru.liko.wrbdrones.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "refmap": "mixins.wrbdrones.refmap.json",
+  "mixins": [
+    "VehicleDamageParticleMixin",
+    "DroneDropMixin"
+  ],
+  "client": [
+    "DroneHudOverlayMixin",
+    "DroneRendererMixin",
+    "client.SoundManagerAccessor",
+    "client.SoundEngineAccessor",
+    "client.ChannelAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
