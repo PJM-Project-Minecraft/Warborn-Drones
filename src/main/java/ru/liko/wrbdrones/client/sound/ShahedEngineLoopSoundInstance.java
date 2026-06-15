@@ -18,6 +18,20 @@ public final class ShahedEngineLoopSoundInstance extends AbstractTickableSoundIn
     private static final float GAINH_LERP = 0.15f;
     private static final float DOPPLER_LERP = 0.2f;
 
+    // ── Органический «рокот» поршневого двигателя ───────────────────────────
+    // Shahed-136 несёт поршневой мотор с толкающим винтом — узнаваемый «мопедный»
+    // стрекот. Чистый луп без модуляции звучит синтетически, поэтому накладываем
+    // лёгкое тремоло (амплитуда) и девиацию тона (частота) из несоизмеримых гармоник:
+    // нет слышимой периодичности, на малых оборотах мотор «троит» сильнее, на
+    // крейсере звук ровнее. Частоты заданы в рад/тик (20 тиков/сек): 2π·f/20.
+    private static final double TREMOLO_RATE_A = 2.0 * Math.PI * 3.1 / 20.0;
+    private static final double TREMOLO_RATE_B = 2.0 * Math.PI * 5.7 / 20.0;
+    private static final double WARBLE_RATE = 2.0 * Math.PI * 4.3 / 20.0;
+    private static final float TREMOLO_DEPTH = 0.09f; // ±9 % громкости на полном «рокоте»
+    private static final float WARBLE_DEPTH = 0.012f; // ±1.2 % частоты
+    private static final float ROUGHNESS_BASE = 0.5f; // постоянная составляющая
+    private static final float ROUGHNESS_IDLE = 0.5f; // добавка на малых оборотах (итог 0.5..1.0)
+
     private long lastUpdateTick = -1;
     private boolean dying = false;
     private int fadeTicks = 0;
@@ -31,6 +45,11 @@ public final class ShahedEngineLoopSoundInstance extends AbstractTickableSoundIn
     private float targetGainHF = 1.0f;
     private float currentGainHF = 1.0f;
 
+    private float engineLoad = 0.0f;
+    private float smoothedVolume = 0.0f;
+    private float smoothedPitch = 1.0f;
+    private final float phaseOffset;
+
     private final double maxAudibleDistance;
 
     public ShahedEngineLoopSoundInstance(final SoundEvent sound, final double maxAudibleDistance) {
@@ -42,6 +61,9 @@ public final class ShahedEngineLoopSoundInstance extends AbstractTickableSoundIn
         this.volume = 0.0f;
         this.pitch = 1.0f;
         this.maxAudibleDistance = maxAudibleDistance;
+        // Случайный сдвиг фазы «рокота», чтобы несколько дронов в воздухе не стрекотали
+        // строго в унисон.
+        this.phaseOffset = this.random.nextFloat() * Mth.TWO_PI;
     }
 
     public void update(
@@ -66,6 +88,7 @@ public final class ShahedEngineLoopSoundInstance extends AbstractTickableSoundIn
         this.targetGainHF = gainHF;
 
         final float mix = Mth.clamp(engineMix, 0.0f, 1.0f);
+        this.engineLoad = mix;
 
         final float flightVolumeMult = 1.0f + diveFactor * 0.9f + speedFactor * 0.35f + turnFactor * 0.25f;
         final float flightPitchOffset = diveFactor * 0.8f - climbFactor * 0.2f + turnFactor * 0.4f;
@@ -147,8 +170,21 @@ public final class ShahedEngineLoopSoundInstance extends AbstractTickableSoundIn
         final float fadeMul = fadeTicks / (float) MAX_FADE_TICKS;
         final float desiredVol = targetVolume * fadeMul * distanceVolumeFactor;
 
-        this.volume = Mth.lerp(0.25f, this.volume, desiredVol);
-        this.pitch = Mth.lerp(0.25f, this.pitch, targetPitch * currentDopplerPitch);
+        // Базовые сглаженные значения — инерция двигателя: обороты (и тон) не меняются
+        // мгновенно, мотор «раскручивается» и «сбрасывает» плавно.
+        smoothedVolume = Mth.lerp(0.25f, smoothedVolume, desiredVol);
+        smoothedPitch = Mth.lerp(0.25f, smoothedPitch, targetPitch * currentDopplerPitch);
+
+        // Наложение «рокота» поверх сглаженной базы. Считаем по игровому времени (+ сдвиг
+        // фазы инстанса), амплитуда выше на малых оборотах и спадает к крейсеру.
+        final float roughAmt = ROUGHNESS_BASE + ROUGHNESS_IDLE * (1.0f - engineLoad);
+        final double phase = now + phaseOffset;
+        final float tremolo = (float) (Math.sin(phase * TREMOLO_RATE_A) * 0.6
+                + Math.sin(phase * TREMOLO_RATE_B + 1.3) * 0.4);
+        final float warble = (float) Math.sin(phase * WARBLE_RATE + 0.7);
+
+        this.volume = Math.max(0.0f, smoothedVolume * (1.0f + tremolo * roughAmt * TREMOLO_DEPTH));
+        this.pitch = Mth.clamp(smoothedPitch * (1.0f + warble * roughAmt * WARBLE_DEPTH), 0.2f, 2.0f);
 
         applyFilter();
 

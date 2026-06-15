@@ -12,7 +12,6 @@ import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
-import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
@@ -31,7 +30,6 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
 import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.item.RadioItem;
@@ -93,7 +91,6 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     private static final double CLOSE_RANGE_DISTANCE = 20.0;
     private static final float EVASIVE_YAW_AMPLITUDE = 20.0f;
     private static final double EVASIVE_ALTITUDE_AMPLITUDE = 5.0;
-    private static final float TARGET_SPREAD = 25.0f;
     private static final float LAUNCH_INITIAL_SPEED = 0.1f;
     private static final double GRAVITY = 0.04;
     private static final double RAYTRACE_SCALE = 1.5;
@@ -412,12 +409,6 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         this.spawnY = (float) this.getY();
         this.spawnZ = (float) this.getZ();
 
-        RandomSource random = this.level().getRandom();
-        float dx = (random.nextFloat() * 2.0f - 1.0f) * TARGET_SPREAD;
-        float dz = (random.nextFloat() * 2.0f - 1.0f) * TARGET_SPREAD;
-        this.entityData.set(TARGET_X, this.entityData.get(TARGET_X) + dx);
-        this.entityData.set(TARGET_Z, this.entityData.get(TARGET_Z) + dz);
-
         Vec3 forward = Vec3.directionFromRotation(0, this.getYRot());
         this.setDeltaMovement(forward.scale(LAUNCH_INITIAL_SPEED));
     }
@@ -427,15 +418,6 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
         if (this.level() instanceof ServerLevel serverLevel) {
             unloadChunks(serverLevel);
-
-            final ShahedExplodePacket packet = new ShahedExplodePacket(
-                    this.getUUID().getMostSignificantBits(),
-                    this.getUUID().getLeastSignificantBits());
-            for (ServerPlayer player : serverLevel.players()) {
-                if (player.distanceToSqr(this) < 1100.0 * 1100.0) {
-                    PacketDistributor.sendToPlayer(player, packet);
-                }
-            }
 
             float damage = ServerConfig.SHAHED136_EXPLOSION_DAMAGE.get().floatValue();
             float radius = ServerConfig.SHAHED136_EXPLOSION_RADIUS.get().floatValue();
@@ -448,6 +430,8 @@ public class Shahed136Entity extends Entity implements GeoEntity {
                     .withParticleType(ParticleTool.ParticleType.GIANT)
                     .explode();
 
+            // Обрыв звука двигателя на клиентах выполняется централизованно в remove(),
+            // которое вызывается отсюда через discard().
             this.discard();
         }
     }
@@ -456,6 +440,18 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     public void remove(@NotNull RemovalReason reason) {
         if (!this.level().isClientSide() && this.level() instanceof ServerLevel serverLevel) {
             unloadChunks(serverLevel);
+
+            // Единая точка выхода для ЛЮБОГО удаления дрона (взрыв, /kill, выгрузка):
+            // гарантированно обрываем звук двигателя на всех клиентах, которые отслеживают
+            // сущность (а значит — проигрывают её звук), независимо от расстояния до игрока.
+            // Раньше пакет слался только из explode() и лишь игрокам в радиусе 1100 блоков,
+            // из-за чего после взрыва звук «висел» (экстраполяция в ShahedSoundHandler), если
+            // игрок был дальше либо дрон удалялся иным путём, минуя explode().
+            // ВАЖНО: рассылка до super.remove(reason) — пока трекинг ещё содержит сущность.
+            final ShahedExplodePacket packet = new ShahedExplodePacket(
+                    this.getUUID().getMostSignificantBits(),
+                    this.getUUID().getLeastSignificantBits());
+            PacketDistributor.sendToPlayersTrackingEntity(this, packet);
         }
         super.remove(reason);
     }
