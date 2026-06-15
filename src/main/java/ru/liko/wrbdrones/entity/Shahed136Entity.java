@@ -32,6 +32,9 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import net.neoforged.neoforge.network.PacketDistributor;
 import ru.liko.wrbdrones.config.ServerConfig;
+import ru.liko.wrbdrones.entity.flight.AircraftProfile;
+import ru.liko.wrbdrones.entity.flight.FixedWingDynamics;
+import ru.liko.wrbdrones.entity.flight.FlightDemand;
 import ru.liko.wrbdrones.item.RadioItem;
 import ru.liko.wrbdrones.network.ShahedExplodePacket;
 import ru.liko.wrbdrones.registry.ModItems;
@@ -71,6 +74,8 @@ public class Shahed136Entity extends Entity implements GeoEntity {
             EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Float> ROLL = SynchedEntityData.defineId(Shahed136Entity.class,
             EntityDataSerializers.FLOAT);
+    private static final EntityDataAccessor<Float> AIRSPEED = SynchedEntityData.defineId(Shahed136Entity.class,
+            EntityDataSerializers.FLOAT);
 
     // ── Flight Constants ────────────────────────────────────────────
 
@@ -78,11 +83,6 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     private static final float TURN_SPEED = 1.5f;
     private static final float TERMINAL_TURN_SPEED = 5.0f;
     private static final float MAX_BANK_ANGLE = 30.0f;
-    private static final float ACCELERATION = 0.05f;
-    private static final float DIVE_ACCELERATION = 0.15f;
-    private static final float DIVE_SPEED_MULTIPLIER = 2.5f;
-    private static final float ROLL_SMOOTHING = 2.0f;
-    private static final float ROLL_FROM_YAW_FACTOR = 15.0f;
     private static final float CRUISE_MAX_PITCH = 45.0f;
     private static final float TERMINAL_MAX_PITCH = 85.0f;
     private static final float FULL_PITCH_RANGE = 90.0f;
@@ -92,9 +92,36 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     private static final float EVASIVE_YAW_AMPLITUDE = 20.0f;
     private static final double EVASIVE_ALTITUDE_AMPLITUDE = 5.0;
     private static final float LAUNCH_INITIAL_SPEED = 0.1f;
-    private static final double GRAVITY = 0.04;
     private static final double RAYTRACE_SCALE = 1.5;
     private static final double CHUNK_PRELOAD_DISTANCE = 32.0;
+
+    // ── Энергомодель (калибровка; скорости в блоках/тик) ────────────
+    private static final float THRUST_IDLE = 0.005f;
+    private static final float THRUST_FULL = 0.06f;
+    private static final float DRAG_COEF = 0.0052f;
+    private static final float PITCH_GRAVITY = 0.09f;
+    private static final float STALL_LIFT_LOSS = 0.10f;
+    private static final float BANK_YAW_FACTOR = 0.05f;
+    private static final float STALL_SPEED_FACTOR = 0.5f;   // stall = cruise·0.5
+    private static final float DIVE_MAX_FACTOR = 2.2f;      // diveMax = setSpeed·2.2
+    // Газ-серво: подводит throttle к удержанию getSetSpeed().
+    private static final float THROTTLE_KP = 0.6f;          // пропорц. коэффициент по ошибке airspeed
+    private static final float THROTTLE_RATE = 0.05f;       // макс. изменение газа за тик
+    // Привязка курсового автопилота к крену (как course-режим Lancet).
+    private static final float COURSE_DIRECT_YAW_GAIN = 0.06f;
+    private static final float COURSE_ROLL_GAIN = 2.2f;
+    private static final float PITCH_RESPONSE = 1.2f;
+    private static final float TERMINAL_PITCH_RESPONSE = 2.2f;
+    private static final float STALL_PITCH_DOWN_RATE = 1.2f;
+    private static final float TERMINAL_TURN_RATE_CLOSE = 14.0f;
+    private static final float TERMINAL_HOMING_RANGE = 40.0f;
+    private static final float TERMINAL_MANEUVER_SPEED_FACTOR = 1.45f;
+    private static final float ROLL_RATE_BASE = 2.5f;
+    // Взрыватель в терминале.
+    private static final float PROXIMITY_ARM_RADIUS = 12.0f;
+    private static final float PROXIMITY_CONTACT_RADIUS = 2.5f;
+    // Гравитация в режиме ожидания (до запуска), блока/тик².
+    private static final double IDLE_GRAVITY = 0.04;
 
     // ── Failsafe Constants ──────────────────────────────────────────
 
@@ -112,6 +139,12 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     private int launchTicks = 0;
     private boolean hasPlayedStartSound = false;
     private float spawnX, spawnY, spawnZ;
+
+    /** Газ [0..1], серверная физика; не синхронизируется. */
+    private float throttle = 0.5f;
+
+    /** Квадрат дальности до цели в прошлый тик (взрыватель «ближайшего подхода»). −1 = не армирован. */
+    private double prevTargetDistSqr = -1.0;
 
     @Nullable
     private UUID ownerUUID;
@@ -145,6 +178,7 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         builder.define(SET_ALTITUDE, 100.0f);
         builder.define(EVASIVE_MODE, false);
         builder.define(ROLL, 0.0f);
+        builder.define(AIRSPEED, 0.0f);
     }
 
     @Override
@@ -260,6 +294,14 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         this.ownerUUID = uuid;
     }
 
+    public float getAirspeed() {
+        return this.entityData.get(AIRSPEED);
+    }
+
+    public void setAirspeed(float airspeed) {
+        this.entityData.set(AIRSPEED, airspeed);
+    }
+
     public float getCurrentSpeed() {
         return (float) this.getDeltaMovement().length();
     }
@@ -357,7 +399,7 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
     private void tickIdle() {
         if (!this.onGround()) {
-            this.setDeltaMovement(this.getDeltaMovement().add(0, -GRAVITY, 0));
+            this.setDeltaMovement(this.getDeltaMovement().add(0, -IDLE_GRAVITY, 0));
             this.move(MoverType.SELF, this.getDeltaMovement());
         } else {
             this.setDeltaMovement(Vec3.ZERO);
@@ -411,6 +453,9 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
         Vec3 forward = Vec3.directionFromRotation(0, this.getYRot());
         this.setDeltaMovement(forward.scale(LAUNCH_INITIAL_SPEED));
+        // Энергомодель: стартуем сразу на заданной крейсерской скорости, чтобы не сваливаться на старте.
+        setAirspeed(getSetSpeed());
+        this.throttle = 0.5f;
     }
 
     public void explode() {
@@ -461,70 +506,60 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     private void updateFlight() {
         Vec3 currentPos = this.position();
         Vec3 targetPos = getTargetPos();
-
         double distXZ = Math.sqrt(currentPos.distanceToSqr(targetPos.x, currentPos.y, targetPos.z));
-        double desiredY = targetPos.y;
+        boolean terminal = distXZ < TERMINAL_PHASE_DISTANCE;
 
-        float currentTurnSpeed = TURN_SPEED;
-        float maxPitch = CRUISE_MAX_PITCH;
+        AircraftProfile profile = shahedProfile();
 
-        if (distXZ < TERMINAL_PHASE_DISTANCE) {
-            currentTurnSpeed = TERMINAL_TURN_SPEED;
-            maxPitch = TERMINAL_MAX_PITCH;
-        }
-
-        if (distXZ > CRUISE_PHASE_DISTANCE) {
-            desiredY = getSetAltitude();
-        }
-
-        double dx = targetPos.x - currentPos.x;
-        double dy = desiredY - currentPos.y;
-        double dz = targetPos.z - currentPos.z;
-
-        float desiredYaw = (float) (Mth.atan2(dz, dx) * (180D / Math.PI)) - 90.0F;
-
-        if (isEvasiveMode() && distXZ > TERMINAL_PHASE_DISTANCE) {
-            long time = this.level().getGameTime();
-            desiredYaw += (float) Math.sin(time * 0.05) * EVASIVE_YAW_AMPLITUDE;
-            desiredY += Math.cos(time * 0.03) * EVASIVE_ALTITUDE_AMPLITUDE;
-            dy = desiredY - currentPos.y;
-        }
-
-        float yawDiff = Mth.wrapDegrees(desiredYaw - this.getYRot());
-        float yawChange = Mth.clamp(yawDiff, -currentTurnSpeed, currentTurnSpeed);
-        this.setYRot(this.getYRot() + yawChange);
-
-        float targetRoll = -yawChange * ROLL_FROM_YAW_FACTOR;
-        targetRoll = Mth.clamp(targetRoll, -MAX_BANK_ANGLE, MAX_BANK_ANGLE);
-        float rollDiff = targetRoll - getRoll();
-        float rollChange = Mth.clamp(rollDiff, -ROLL_SMOOTHING, ROLL_SMOOTHING);
-        setRoll(getRoll() + rollChange);
-
-        float desiredPitch = (float) (-(Mth.atan2(dy, distXZ) * (180D / Math.PI)));
-        if (distXZ > CLOSE_RANGE_DISTANCE) {
-            desiredPitch = Mth.clamp(desiredPitch, -maxPitch, maxPitch);
+        // ── 1. Газ-серво: держим заданную крейсерскую скорость; в терминале — полный газ ──
+        float airspeed = getAirspeed();
+        if (terminal) {
+            throttle = Mth.lerp(0.2f, throttle, 1.0f);
         } else {
-            desiredPitch = Mth.clamp(desiredPitch, -FULL_PITCH_RANGE, FULL_PITCH_RANGE);
+            float err = getSetSpeed() - airspeed;
+            throttle += Mth.clamp(err * THROTTLE_KP, -THROTTLE_RATE, THROTTLE_RATE);
         }
+        throttle = Mth.clamp(throttle, 0.0f, 1.0f);
 
-        float pitchDiff = Mth.wrapDegrees(desiredPitch - this.getXRot());
-        float pitchChange = Mth.clamp(pitchDiff, -currentTurnSpeed, currentTurnSpeed);
-        this.setXRot(this.getXRot() + pitchChange);
-
-        float targetSpeed = getSetSpeed();
-        boolean isDiving = distXZ < TERMINAL_PHASE_DISTANCE && dy < 0;
-        if (isDiving) {
-            float diveIntensity = Mth.clamp(this.getXRot() / TERMINAL_MAX_PITCH, 0.0f, 1.0f);
-            targetSpeed *= Mth.lerp(1.0f, DIVE_SPEED_MULTIPLIER, diveIntensity);
-            targetSpeed = Math.max(targetSpeed, (float) this.getDeltaMovement().length());
+        // ── 2. Энергоинтеграция airspeed ──
+        airspeed = FixedWingDynamics.integrateAirspeed(airspeed, this.getXRot(), throttle, profile);
+        airspeed = Mth.clamp(airspeed, 0.0f, profile.diveMaxSpeed());
+        // На сближении в терминале гасим до манёвренной — тугой радиус R = v/ω доворачивает на точку.
+        if (terminal && distXZ < TERMINAL_HOMING_RANGE) {
+            float maneuverCap = Math.min(profile.diveMaxSpeed(), getSetSpeed() * TERMINAL_MANEUVER_SPEED_FACTOR);
+            airspeed = Math.min(airspeed, maneuverCap);
         }
+        setAirspeed(airspeed);
 
-        float currentSpeed = (float) this.getDeltaMovement().length();
-        float accel = isDiving ? DIVE_ACCELERATION : ACCELERATION;
-        float newSpeed = currentSpeed + Mth.clamp(targetSpeed - currentSpeed, -accel, accel);
+        // ── 3. Команда автопилота ──
+        FlightDemand demand = computeFlightDemand(currentPos, targetPos, distXZ, terminal);
 
-        Vec3 motion = Vec3.directionFromRotation(this.getXRot(), this.getYRot()).scale(newSpeed);
+        // ── 4. Тангаж: доводим к demand.pitch(), при сваливании нос вниз ──
+        float pitchResponse = terminal ? TERMINAL_PITCH_RESPONSE : PITCH_RESPONSE;
+        float requestedPitch = Mth.approachDegrees(this.getXRot(), demand.pitch(), pitchResponse);
+        float stallDeficit = FixedWingDynamics.stallDeficit(airspeed, profile.stallSpeed());
+        if (stallDeficit > 0.0f) {
+            requestedPitch = Mth.approachDegrees(requestedPitch, 22.0f,
+                    STALL_PITCH_DOWN_RATE * (1.0f + 1.5f * stallDeficit));
+        }
+        float maxPitch = terminal ? TERMINAL_MAX_PITCH : CRUISE_MAX_PITCH;
+        this.setXRot(Mth.clamp(requestedPitch, -maxPitch, maxPitch));
 
+        // ── 5. Координированный банкированный разворот (паттерн course-режима Lancet) ──
+        float bankFactor = FixedWingDynamics.bankFactor(airspeed, profile);
+        float autoYawChange = Mth.clamp(demand.yawDiff() * COURSE_DIRECT_YAW_GAIN,
+                -demand.turnRate(), demand.turnRate());
+        float targetRoll = Mth.clamp(demand.yawDiff() * COURSE_ROLL_GAIN, -MAX_BANK_ANGLE, MAX_BANK_ANGLE);
+        float rollRate = ROLL_RATE_BASE * Mth.clamp(airspeed / Math.max(getSetSpeed(), 0.01f), 0.4f, 1.4f);
+        setRoll(Mth.approach(getRoll(), targetRoll, rollRate));
+        float bankYaw = getRoll() * bankFactor;
+        this.setYRot(this.getYRot() + bankYaw + autoYawChange);
+
+        // ── 6. Сборка движения ──
+        Vec3 motion = FixedWingDynamics.assembleMotion(
+                this.getXRot(), this.getYRot(), airspeed, stallDeficit, profile);
+
+        // ── 7. Столкновения и подрыв ──
         if (launchTicks > FAILSAFE_DELAY_TICKS) {
             Vec3 start = this.position();
             Vec3 end = start.add(motion.scale(RAYTRACE_SCALE));
@@ -540,10 +575,95 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         this.setDeltaMovement(motion);
         this.move(MoverType.SELF, motion);
 
+        // ── 8. Терминальный взрыватель (контакт + ближайший подход) ──
+        if (terminal) {
+            checkTerminalDetonation(targetPos);
+            if (this.isRemoved()) return;
+        } else {
+            prevTargetDistSqr = -1.0;
+        }
+
         if (launchTicks > FAILSAFE_DELAY_TICKS
                 && (this.horizontalCollision || this.verticalCollision || this.onGround())) {
             explode();
         }
+    }
+
+    /**
+     * Команда курсового автопилота к точке-цели. Тангаж — на удержание заданной высоты
+     * (крейсер) либо на пикирование (терминал); рыскание — рассогласование курса.
+     * Режим уклонения подмешивает синусоиду в курс и высоту (как прежде).
+     */
+    private FlightDemand computeFlightDemand(Vec3 currentPos, Vec3 targetPos, double distXZ, boolean terminal) {
+        double desiredY = targetPos.y;
+        if (distXZ > CRUISE_PHASE_DISTANCE) {
+            desiredY = getSetAltitude();
+        }
+
+        double dx = targetPos.x - currentPos.x;
+        double dz = targetPos.z - currentPos.z;
+        float desiredYaw = (float) (Mth.atan2(dz, dx) * (180D / Math.PI)) - 90.0F;
+
+        if (isEvasiveMode() && !terminal) {
+            long time = this.level().getGameTime();
+            desiredYaw += (float) Math.sin(time * 0.05) * EVASIVE_YAW_AMPLITUDE;
+            desiredY += Math.cos(time * 0.03) * EVASIVE_ALTITUDE_AMPLITUDE;
+        }
+
+        double dy = desiredY - currentPos.y;
+        float yawDiff = Mth.wrapDegrees(desiredYaw - this.getYRot());
+
+        float maxPitch = terminal ? TERMINAL_MAX_PITCH : CRUISE_MAX_PITCH;
+        float desiredPitch = (float) (-(Mth.atan2(dy, distXZ) * (180D / Math.PI)));
+        if (distXZ > CLOSE_RANGE_DISTANCE) {
+            desiredPitch = Mth.clamp(desiredPitch, -maxPitch, maxPitch);
+        } else {
+            desiredPitch = Mth.clamp(desiredPitch, -FULL_PITCH_RANGE, FULL_PITCH_RANGE);
+        }
+
+        float turnRate;
+        if (terminal) {
+            float t = (float) Mth.clamp(1.0 - distXZ / TERMINAL_HOMING_RANGE, 0.0, 1.0);
+            turnRate = Mth.lerp(t, TERMINAL_TURN_SPEED, TERMINAL_TURN_RATE_CLOSE);
+        } else {
+            turnRate = TURN_SPEED;
+        }
+
+        return new FlightDemand(true, desiredPitch, yawDiff, turnRate);
+    }
+
+    /** Профиль аэродинамики Shahed: крейсер = заданная операторская скорость. */
+    private AircraftProfile shahedProfile() {
+        float cruise = getSetSpeed();
+        float diveMax = Math.max(cruise * DIVE_MAX_FACTOR, cruise + 0.5f);
+        float stall = cruise * STALL_SPEED_FACTOR;
+        return new AircraftProfile(
+                THRUST_IDLE, THRUST_FULL, DRAG_COEF, PITCH_GRAVITY,
+                stall, cruise, diveMax,
+                STALL_LIFT_LOSS, BANK_YAW_FACTOR);
+    }
+
+    /**
+     * Гарантия подрыва в терминальной фазе: контактный взрыватель в {@link #PROXIMITY_CONTACT_RADIUS}
+     * и неконтактный «по ближайшему подходу» — после арминга в {@link #PROXIMITY_ARM_RADIUS}
+     * подрыв, когда дальность до точки-цели снова начала расти (дрон прошёл мимо).
+     * Это исключает бесконечное наматывание кругов вокруг точки.
+     */
+    private void checkTerminalDetonation(Vec3 targetPos) {
+        double distSqr = this.position().distanceToSqr(targetPos);
+
+        if (distSqr <= PROXIMITY_CONTACT_RADIUS * PROXIMITY_CONTACT_RADIUS) {
+            explode();
+            return;
+        }
+
+        if (distSqr <= PROXIMITY_ARM_RADIUS * PROXIMITY_ARM_RADIUS
+                && prevTargetDistSqr >= 0.0 && distSqr > prevTargetDistSqr) {
+            explode();
+            return;
+        }
+
+        prevTargetDistSqr = distSqr;
     }
 
     // ── Particles & Sounds ──────────────────────────────────────────
@@ -658,6 +778,8 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         if (tag.contains("LinkedRadioUUID")) setLinkedRadioUUID(tag.getString("LinkedRadioUUID"));
         if (tag.hasUUID("OwnerUUID")) ownerUUID = tag.getUUID("OwnerUUID");
         if (tag.contains("SetSpeed")) setSetSpeed(tag.getFloat("SetSpeed"));
+        if (tag.contains("Airspeed")) setAirspeed(tag.getFloat("Airspeed"));
+        if (tag.contains("Throttle")) throttle = tag.getFloat("Throttle");
         if (tag.contains("SetAltitude")) setSetAltitude(tag.getFloat("SetAltitude"));
         if (tag.contains("EvasiveMode")) setEvasiveMode(tag.getBoolean("EvasiveMode"));
         if (tag.contains("SpawnX")) this.spawnX = tag.getFloat("SpawnX");
@@ -679,6 +801,8 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         tag.putInt("LaunchTicks", launchTicks);
         tag.putBoolean("HasPlayedStartSound", hasPlayedStartSound);
         tag.putFloat("SetSpeed", getSetSpeed());
+        tag.putFloat("Airspeed", getAirspeed());
+        tag.putFloat("Throttle", throttle);
         tag.putFloat("SetAltitude", getSetAltitude());
         tag.putBoolean("EvasiveMode", isEvasiveMode());
         tag.putFloat("SpawnX", this.spawnX);
