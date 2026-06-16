@@ -85,20 +85,6 @@ public final class DroneEngineLoopSoundInstance extends AbstractTickableSoundIns
         this.dying = true;
     }
 
-    public void keepAlive(final long gameTick) {
-        this.lastUpdateTick = gameTick;
-    }
-
-    public void extrapolate(final double newX, final double newY, final double newZ,
-                           final float dopplerPitch, final float gainHF, final long gameTick) {
-        this.x = newX;
-        this.y = newY;
-        this.z = newZ;
-        this.targetDopplerPitch = dopplerPitch;
-        this.targetGainHF = gainHF;
-        this.lastUpdateTick = gameTick;
-    }
-
     public void forceStop() {
         removeFilter();
         stop();
