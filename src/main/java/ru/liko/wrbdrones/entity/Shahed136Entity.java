@@ -370,7 +370,16 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     }
 
     private void clientTickLaunched() {
-        Vec3 motion = this.getDeltaMovement();
+        // Клиентское предсказание движения. Раньше двигались по getDeltaMovement() —
+        // последней СИНХРОНИЗИРОВАННОЙ скорости, которая на манёврах устаревает на тик и
+        // уводит траекторию вбок, из-за чего серверные коррекции «дёргают» дрон.
+        // Теперь собираем вектор так же, как сервер в updateFlight: по синхронизированным
+        // курсу/тангажу (move-пакеты каждый тик) и airspeed (entityData) — предсказание
+        // совпадает с серверным путём, рассинхрон/«прыжки» уходят.
+        float airspeed = getAirspeed();
+        Vec3 motion = airspeed > 0.001f
+                ? Vec3.directionFromRotation(this.getXRot(), this.getYRot()).scale(airspeed)
+                : this.getDeltaMovement();
         if (motion.lengthSqr() > 0.001) {
             this.move(MoverType.SELF, motion);
         }
