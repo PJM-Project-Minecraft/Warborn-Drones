@@ -38,7 +38,10 @@ public final class ShahedDiveLoopSoundInstance extends AbstractTickableSoundInst
         this.looping = true;
         this.delay = 0;
         this.relative = false;
-        this.attenuation = Attenuation.NONE;
+        // LINEAR, а не NONE: NONE даёт AL_SOURCE_RELATIVE=true и звук «в голове» без
+        // панорамы. Громкость по расстоянию считаем сами; attenuation_distance у
+        // shahed136_dive в sounds.json большая (4096), поэтому OpenAL даёт только панораму.
+        this.attenuation = Attenuation.LINEAR;
         this.volume = 0.0f;
         this.pitch = 0.9f;
         this.maxAudibleDistance = maxAudibleDistance;

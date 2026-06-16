@@ -68,7 +68,7 @@
     "subtitle": "subtitles.wrbdrones.shahed136_engine",
     "sounds": [
       {
-        "attenuation_distance": 16,
+        "attenuation_distance": 4096,
         "stream": false,
         "name": "wrbdrones:shahed136_engine",
         "volume": 1.0
@@ -79,7 +79,7 @@
     "subtitle": "subtitles.wrbdrones.shahed136_dive",
     "sounds": [
       {
-        "attenuation_distance": 16,
+        "attenuation_distance": 4096,
         "stream": false,
         "name": "wrbdrones:shahed136_engine",
         "volume": 1.5,

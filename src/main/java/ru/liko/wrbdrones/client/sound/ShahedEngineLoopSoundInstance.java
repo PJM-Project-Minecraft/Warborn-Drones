@@ -57,7 +57,12 @@ public final class ShahedEngineLoopSoundInstance extends AbstractTickableSoundIn
         this.looping = true;
         this.delay = 0;
         this.relative = false;
-        this.attenuation = Attenuation.NONE;
+        // LINEAR, а не NONE: при NONE Minecraft выставляет AL_SOURCE_RELATIVE=true,
+        // из-за чего звук теряет 3D-панораму (играет «в голове»). Громкостью по
+        // расстоянию управляем сами через computeDistanceVolumeFactor, а в sounds.json
+        // у shahed136_engine задана большая attenuation_distance (4096) — OpenAL не режет
+        // дальность в пределах слышимости, оставляя только панораму.
+        this.attenuation = Attenuation.LINEAR;
         this.volume = 0.0f;
         this.pitch = 1.0f;
         this.maxAudibleDistance = maxAudibleDistance;
