@@ -1,0 +1,6 @@
+{
+  "parent": "wrbdrones:item/dronetable",
+  "textures": {
+    "particle": "wrbdrones:entity/dronetable"
+  }
+}

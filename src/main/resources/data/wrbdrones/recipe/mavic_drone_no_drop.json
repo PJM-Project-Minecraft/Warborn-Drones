@@ -1,0 +1,34 @@
+{
+  "type": "wrbdrones:drone_assembling",
+  "assembly_ticks": 80,
+  "ingredients": [
+    {
+      "ingredient": {
+        "item": "superbwarfare:motor"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:propeller"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:small_battery_pack"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:ancient_cpu"
+      },
+      "count": 2
+    }
+  ],
+  "result": {
+    "item": "wrbdrones:mavic_drone_no_drop",
+    "count": 1
+  }
+}

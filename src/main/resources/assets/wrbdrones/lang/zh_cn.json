@@ -7,6 +7,8 @@
   "item.wrbdrones.reb_mini": "电子战系统 (小型)",
   "item.wrbdrones.shahed136": "Shahed-136 巡飞弹",
   "item.wrbdrones.radio": "战术无线电",
+  "item.wrbdrones.dronetable": "无人机装配台",
+  "block.wrbdrones.dronetable": "无人机装配台",
   "entity.wrbdrones.mavic_drone_with_drop": "Mavic 侦察无人机 (带投掷模块)",
   "entity.wrbdrones.mavic_drone_no_drop": "Mavic 侦察无人机 (无投掷模块)",
   "entity.wrbdrones.fpv_drone": "FPV 攻击无人机",
@@ -50,5 +52,11 @@
   "screen.wrbdrones.radio.eta": "预计时间: %.0f秒",
   "screen.wrbdrones.radio.warning.too_far": "§c目标太远! 最大 %s 方块",
   "screen.wrbdrones.radio.warning.invalid_speed": "§c速度无效! (%s-%s km/h)",
-  "screen.wrbdrones.radio.warning.invalid_alt": "§c高度无效! (%s-%s 方块)"
+  "screen.wrbdrones.radio.warning.invalid_alt": "§c高度无效! (%s-%s 方块)",
+  "screen.wrbdrones.dronetable": "无人机装配",
+  "screen.wrbdrones.dronetable.assemble": "装配",
+  "screen.wrbdrones.dronetable.materials": "材料",
+  "screen.wrbdrones.dronetable.ready": "就绪",
+  "screen.wrbdrones.dronetable.missing": "缺少材料",
+  "screen.wrbdrones.dronetable.no_recipes": "没有无人机配方"
 }

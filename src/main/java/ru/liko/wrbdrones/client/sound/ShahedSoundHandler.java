@@ -58,7 +58,6 @@ public final class ShahedSoundHandler {
     }
 
     private static final class Controller {
-        private static final long EXPLOSION_HARD_REMOVE_TICKS = 80;
         private static final long TRACKING_FADE_START_TICKS = 400;
         private static final long TRACKING_HARD_REMOVE_TICKS = 500;
 
@@ -101,8 +100,14 @@ public final class ShahedSoundHandler {
             lastSeenTick = nowTick;
 
             if (exploded) {
-                if (engine != null) engine.requestFadeOut();
-                if (dive != null) dive.requestFadeOut();
+                stopHard();
+                return;
+            }
+
+            // Страховка на случай discard без ShahedExplodePacket — обрываем звук мгновенно.
+            if (shahed.isRemoved()) {
+                exploded = true;
+                stopHard();
                 return;
             }
 
@@ -193,14 +198,8 @@ public final class ShahedSoundHandler {
             }
 
             if (exploded) {
-                if (engine != null && !engine.isStopped()) engine.requestFadeOut();
-                if (dive != null && !dive.isStopped()) dive.requestFadeOut();
-                final long elapsed = lastSeenTick >= 0 ? nowTick - lastSeenTick : 0;
-                if (elapsed > EXPLOSION_HARD_REMOVE_TICKS) {
-                    stopHard();
-                    return true;
-                }
-                return false;
+                stopHard();
+                return true;
             }
 
             if (!seenThisTick) {

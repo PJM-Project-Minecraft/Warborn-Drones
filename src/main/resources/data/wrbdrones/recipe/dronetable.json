@@ -1,0 +1,28 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "key": {
+    "c": {
+      "item": "minecraft:iron_ingot"
+    },
+    "d": {
+      "item": "minecraft:smithing_table"
+    },
+    "p": {
+      "item": "superbwarfare:steel_pipe"
+    },
+    "s": {
+      "tag": "superbwarfare:ingots/steel"
+    }
+  },
+  "pattern": [
+    "sss",
+    "cdc",
+    "p p"
+  ],
+  "result": {
+    "count": 1,
+    "id": "wrbdrones:dronetable"
+  },
+  "show_notification": true
+}

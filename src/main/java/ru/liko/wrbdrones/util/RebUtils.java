@@ -2,8 +2,6 @@ package ru.liko.wrbdrones.util;
 
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.api.distmarker.OnlyIn;
 import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.entity.RebEntity;
 import ru.liko.wrbdrones.entity.RebMiniEntity;
@@ -11,8 +9,8 @@ import ru.liko.wrbdrones.entity.RebMiniEntity;
 /**
  * Утилиты для работы с РЭБ (радиоэлектронная борьба).
  * Содержит общие методы расчёта помех и глушения сигнала.
+ * Дист-нейтрален: вызывается и с клиента (HUD), и с сервера (авторитарная проверка).
  */
-@OnlyIn(Dist.CLIENT)
 public final class RebUtils {
 
     private RebUtils() {
@@ -20,11 +18,8 @@ public final class RebUtils {
 
     /**
      * Возвращает коэффициент воздействия РЭБ на сущность (0.0 - 1.0).
-     * 0.0 = нет эффекта, 1.0 = максимальное воздействие (в центре РЭБ).
-     * Использует квадратичную функцию для плавного затухания.
-     * 
-     * @param entity сущность для проверки
-     * @return коэффициент воздействия
+     * 0.0 = нет эффекта, 1.0 = максимальное воздействие.
+     * Кривая и множитель управляются конфигом (REB_JAMMING_CURVE_EXPONENT, REB_JAMMING_MULTIPLIER).
      */
     public static double getRebFactor(Entity entity) {
         Level level = entity.level();
@@ -38,7 +33,6 @@ public final class RebUtils {
         var entities = com.atsuishio.superbwarfare.tools.EntityFindUtil.getEntities(level);
 
         for (var e : entities.getAll()) {
-            // Проверяем большой РЭБ
             if (e instanceof RebEntity reb && !reb.isRemoved() && reb.isEnabled()) {
                 double distance = Math.sqrt(entity.distanceToSqr(reb));
                 if (distance <= rebRadius) {
@@ -46,7 +40,6 @@ public final class RebUtils {
                     maxFactor = Math.max(maxFactor, factor);
                 }
             }
-            // Проверяем мини РЭБ
             if (e instanceof RebMiniEntity rebMini && !rebMini.isRemoved() && rebMini.isEnabled()) {
                 double distance = Math.sqrt(entity.distanceToSqr(rebMini));
                 if (distance <= rebMiniRadius) {
@@ -61,12 +54,16 @@ public final class RebUtils {
 
     /**
      * Вычисляет коэффициент воздействия по расстоянию.
-     * Квадратичная функция для реалистичного затухания.
+     * factor = (1 - dist/radius)^exponent * multiplier, кламп на 1.0.
+     * Раньше всегда был exponent=2.0 и multiplier=1.0 — РЭБ слабо давил на краях.
      */
     private static double calculateFactor(double distance, double radius) {
         double normalized = distance / radius;
-        double factor = 1.0 - normalized;
-        return factor * factor; // Квадратичное затухание
+        double base = Math.max(0.0, 1.0 - normalized);
+        double exponent = ServerConfig.REB_JAMMING_CURVE_EXPONENT.get();
+        double multiplier = ServerConfig.REB_JAMMING_MULTIPLIER.get();
+        double curved = Math.pow(base, exponent);
+        return Math.min(1.0, curved * multiplier);
     }
 
     /**

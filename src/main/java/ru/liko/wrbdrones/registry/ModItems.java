@@ -6,10 +6,13 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import ru.liko.wrbdrones.Wrbdrones;
 import ru.liko.wrbdrones.item.AddonDroneItem;
+import ru.liko.wrbdrones.item.DronetableBlockItem;
+import ru.liko.wrbdrones.item.LancetLaunchPlatformItem;
 import ru.liko.wrbdrones.item.RadioItem;
 import ru.liko.wrbdrones.item.RebItem;
 import ru.liko.wrbdrones.item.RebMiniItem;
 import ru.liko.wrbdrones.item.Shahed136Item;
+import ru.liko.wrbdrones.item.ZalaLancetItem;
 
 public final class ModItems {
         private ModItems() {
@@ -34,6 +37,13 @@ public final class ModItems {
                                         () -> AddonDroneItem.fromType(ModEntityTypes.FPV_DRONE),
                                         null));
 
+        public static final DeferredHolder<Item, Item> ZALA_LANCET = REGISTRY.register("zala_lancet",
+                        () -> new ZalaLancetItem(new Item.Properties().stacksTo(1)));
+
+        public static final DeferredHolder<Item, Item> LANCET_LAUNCH_PLATFORM = REGISTRY.register(
+                        "lancet_launch_platform",
+                        () -> new LancetLaunchPlatformItem(new Item.Properties().stacksTo(1)));
+
         public static final DeferredHolder<Item, Item> REB = REGISTRY.register("reb",
                         () -> new RebItem(new Item.Properties().stacksTo(16)));
 
@@ -45,5 +55,7 @@ public final class ModItems {
 
         public static final DeferredHolder<Item, Item> RADIO = REGISTRY.register("radio",
                         () -> new RadioItem(new Item.Properties().stacksTo(1)));
-}
 
+        public static final DeferredHolder<Item, Item> DRONETABLE = REGISTRY.register("dronetable",
+                        () -> new DronetableBlockItem(new Item.Properties().stacksTo(1)));
+}

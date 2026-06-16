@@ -1,0 +1,52 @@
+{
+  "type": "wrbdrones:drone_assembling",
+  "assembly_ticks": 240,
+  "ingredients": [
+    {
+      "ingredient": {
+        "item": "superbwarfare:large_motor"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:large_propeller"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:medium_battery_pack"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:ancient_cpu"
+      },
+      "count": 6
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:high_energy_explosives"
+      },
+      "count": 2
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:fusee"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "tag": "superbwarfare:ingots/steel"
+      },
+      "count": 4
+    }
+  ],
+  "result": {
+    "item": "wrbdrones:zala_lancet",
+    "count": 1
+  }
+}

@@ -3,6 +3,7 @@ package ru.liko.wrbdrones.network;
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
+import ru.liko.wrbdrones.client.screen.LancetLaunchPlatformScreen;
 import ru.liko.wrbdrones.client.screen.RadioScreen;
 import ru.liko.wrbdrones.client.sound.ShahedSoundHandler;
 
@@ -21,5 +22,10 @@ public class ClientPacketHandler {
 
     public static void handleShahedExplode(UUID droneId) {
         ShahedSoundHandler.onDroneExploded(droneId);
+    }
+
+    public static void handleOpenLancetPlatformScreen(int platformEntityId, boolean loaded) {
+        Minecraft.getInstance().execute(() -> Minecraft.getInstance()
+                .setScreen(new LancetLaunchPlatformScreen(platformEntityId, loaded)));
     }
 }

@@ -1,0 +1,52 @@
+{
+  "type": "wrbdrones:drone_assembling",
+  "assembly_ticks": 400,
+  "ingredients": [
+    {
+      "ingredient": {
+        "item": "superbwarfare:large_motor"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:large_propeller"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:medium_battery_pack"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:ancient_cpu"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:high_energy_explosives"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:fusee"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "tag": "superbwarfare:ingots/steel"
+      },
+      "count": 12
+    }
+  ],
+  "result": {
+    "item": "wrbdrones:shahed136",
+    "count": 1
+  }
+}

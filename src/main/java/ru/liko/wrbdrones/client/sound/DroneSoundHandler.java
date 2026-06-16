@@ -2,10 +2,12 @@ package ru.liko.wrbdrones.client.sound;
 
 import com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity;
 import com.atsuishio.superbwarfare.init.ModItems;
+import com.atsuishio.superbwarfare.tools.EntityFindUtil;
 import com.atsuishio.superbwarfare.tools.NBTTool;
 import net.minecraft.client.Minecraft;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
@@ -54,7 +56,7 @@ public final class DroneSoundHandler {
                     .updateFromEntity(drone, now);
         }
 
-        CONTROLLERS.entrySet().removeIf(e -> e.getValue().shouldRemove(now));
+        CONTROLLERS.entrySet().removeIf(e -> e.getValue().shouldRemove(now, e.getKey()));
     }
 
     private static boolean isControlledByMonitor(AddonDroneEntity drone) {
@@ -66,30 +68,28 @@ public final class DroneSoundHandler {
         if (!stack.is(ModItems.MONITOR.get())) return false;
 
         var tag = NBTTool.getTag(stack);
-        if (!tag.getBoolean(com.atsuishio.superbwarfare.item.Monitor.LINKED)) return false;
+        if (!tag.getBoolean(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED)) return false;
         if (!tag.getBoolean("Using")) return false;
 
-        return drone.getStringUUID().equals(tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE));
+        return drone.getStringUUID().equals(tag.getString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE));
     }
 
     private static final class Controller {
-        private static final long TRACKING_FADE_START_TICKS = 200;
-        private static final long TRACKING_HARD_REMOVE_TICKS = 250;
-
         private DroneEngineLoopSoundInstance engine;
 
-        private long lastSeenTick = -1;
         private boolean seenThisTick;
+        private boolean destroyed = false;
 
         private Vec3 prevDronePos = null;
-        private Vec3 lastDroneVelocity = Vec3.ZERO;
-        private Vec3 extrapolatedPos = null;
 
-        private void ensureEngine(final Minecraft mc, double maxDistance) {
+        private void ensureEngine(final Minecraft mc, double maxDistance, final AddonDroneEntity drone) {
             if (engine != null && !engine.isStopped()) {
                 return;
             }
-            final SoundEvent sound = ModSounds.FPV_DRONE_ENGINE.get();
+            SoundEvent sound = ModSounds.FPV_DRONE_ENGINE.get();
+            if (drone instanceof ru.liko.wrbdrones.entity.ZalaLancetEntity) {
+                sound = ModSounds.SHAHED136_ENGINE.get();
+            }
             engine = new DroneEngineLoopSoundInstance(sound, maxDistance);
             mc.getSoundManager().play(engine);
         }
@@ -101,7 +101,14 @@ public final class DroneSoundHandler {
             }
 
             seenThisTick = true;
-            lastSeenTick = nowTick;
+
+            // Дрон уничтожен — обрываем звук мгновенно, без fade и экстраполяции.
+            if (drone.isRemoved()) {
+                destroyed = true;
+                stopHard();
+                prevDronePos = null;
+                return;
+            }
 
             if (!drone.engineRunning()) {
                 if (engine != null) {
@@ -111,11 +118,11 @@ public final class DroneSoundHandler {
                 return;
             }
 
-            // Не воспроизводим внешний звук, если игрок управляет дроном через монитор
+            // Не воспроизводим внешний звук, если игрок управляет дроном через монитор.
+            // Мгновенно обрываем звук: игрок телепортируется к дрону (distance≈0), поэтому любой
+            // fade в этот момент играет на максимальной громкости пару секунд — это и есть "баг".
             if (isControlledByMonitor(drone)) {
-                if (engine != null) {
-                    engine.requestFadeOut();
-                }
+                stopHard();
                 prevDronePos = null;
                 return;
             }
@@ -129,8 +136,6 @@ public final class DroneSoundHandler {
                 droneVelocity = dronePos.subtract(prevDronePos);
             }
             prevDronePos = dronePos;
-            lastDroneVelocity = droneVelocity;
-            extrapolatedPos = dronePos;
 
             // Мощность двигателя и фактор скорости
             final float power = Math.abs(drone.getEntityData().get(VehicleEntity.POWER));
@@ -147,7 +152,7 @@ public final class DroneSoundHandler {
             final float dopplerPitch = ShahedSoundEffects.computeDopplerPitch(dronePos, droneVelocity, playerPos);
             final float gainHF = ShahedSoundEffects.computeCombinedGainHF(distance, dronePos.y, playerPos.y, maxDist);
 
-            ensureEngine(mc, maxDist);
+            ensureEngine(mc, maxDist, drone);
             if (engine != null) {
                 engine.update(
                         dronePos.x, dronePos.y, dronePos.z,
@@ -157,53 +162,34 @@ public final class DroneSoundHandler {
             }
         }
 
-        private boolean shouldRemove(final long nowTick) {
+        /**
+         * Звук мог исчезнуть из {@code entitiesForRendering()} раньше, чем успеет прийти тик с
+         * {@link AddonDroneEntity#isRemoved()} — тогда срабатывал плавный фейд. Уничтожение / пропажа
+         * сущности из клиентского мира обрабатываем через {@link EntityFindUtil}: сразу {@link #stopHard()}.
+         */
+        private boolean shouldRemove(final long nowTick, final UUID droneUuid) {
+            if (destroyed) {
+                stopHard();
+                return true;
+            }
             if (engine == null || engine.isStopped()) {
                 return true;
             }
 
             if (!seenThisTick) {
-                final long elapsed = lastSeenTick >= 0 ? nowTick - lastSeenTick : 0;
-                if (elapsed > TRACKING_HARD_REMOVE_TICKS) {
-                    stopHard();
-                    return true;
+                final Minecraft mc = Minecraft.getInstance();
+                final Entity entity = mc != null && mc.level != null
+                        ? EntityFindUtil.findEntity(mc.level, droneUuid.toString())
+                        : null;
+                if (entity instanceof AddonDroneEntity drone && !drone.isRemoved()) {
+                    updateFromEntity(drone, nowTick);
+                    return false;
                 }
-                extrapolateAndUpdate(nowTick, elapsed);
+                stopHard();
+                return true;
             }
 
             return false;
-        }
-
-        private void extrapolateAndUpdate(final long nowTick, final long elapsed) {
-            if (extrapolatedPos == null) {
-                if (engine != null && !engine.isStopped()) engine.keepAlive(nowTick);
-                return;
-            }
-
-            extrapolatedPos = extrapolatedPos.add(lastDroneVelocity);
-
-            final Minecraft mc = Minecraft.getInstance();
-            Vec3 playerPos = extrapolatedPos;
-            if (mc != null && mc.getCameraEntity() != null) {
-                playerPos = mc.getCameraEntity().position();
-            }
-
-            final double distance = extrapolatedPos.distanceTo(playerPos);
-            final double maxDist = ServerConfig.FPV_SOUND_MAX_DISTANCE.get();
-            final float dopplerPitch = ShahedSoundEffects.computeDopplerPitch(
-                    extrapolatedPos, lastDroneVelocity, playerPos);
-            final float gainHF = ShahedSoundEffects.computeCombinedGainHF(
-                    distance, extrapolatedPos.y, playerPos.y, maxDist);
-
-            if (engine != null && !engine.isStopped()) {
-                engine.extrapolate(extrapolatedPos.x, extrapolatedPos.y, extrapolatedPos.z,
-                        dopplerPitch, gainHF, nowTick);
-            }
-
-            final double fadeDist = maxDist > 0 ? maxDist : 1500.0;
-            if (distance > fadeDist || elapsed > TRACKING_FADE_START_TICKS) {
-                if (engine != null) engine.requestFadeOut();
-            }
         }
 
         private void stopHard() {

@@ -42,7 +42,11 @@ public final class DroneEngineLoopSoundInstance extends AbstractTickableSoundIns
         this.looping = true;
         this.delay = 0;
         this.relative = false;
-        this.attenuation = Attenuation.NONE;
+        // LINEAR, а не NONE: при NONE Minecraft выставляет AL_SOURCE_RELATIVE=true,
+        // из-за чего звук теряет 3D-позиционирование (играет «в голове»).
+        // Громкостью по расстоянию управляем сами через computeDistanceVolumeFactor,
+        // поэтому дистанцию аттенюации делаем большой — OpenAL оставляет только панораму.
+        this.attenuation = Attenuation.LINEAR;
         this.volume = 0.0f;
         this.pitch = 1.0f;
         this.maxAudibleDistance = maxAudibleDistance;

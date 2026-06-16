@@ -1,0 +1,46 @@
+{
+  "type": "wrbdrones:drone_assembling",
+  "assembly_ticks": 180,
+  "ingredients": [
+    {
+      "ingredient": {
+        "item": "superbwarfare:battery"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:data_chip_substrate"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:ancient_cpu"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:copper_plate"
+      },
+      "count": 4
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:steel_pipe"
+      },
+      "count": 2
+    },
+    {
+      "ingredient": {
+        "tag": "superbwarfare:ingots/steel"
+      },
+      "count": 4
+    }
+  ],
+  "result": {
+    "item": "wrbdrones:reb_mini",
+    "count": 1
+  }
+}

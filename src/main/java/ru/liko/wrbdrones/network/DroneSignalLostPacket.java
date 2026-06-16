@@ -19,13 +19,19 @@ import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import java.util.Objects;
 import java.util.UUID;
 
-public record DroneSignalLostPacket(UUID droneId) implements CustomPacketPayload {
+/**
+ * @param selfDestruct {@code true} — явное самоуничтожение (ЛКМ): взрыв/боеприпас SBW и полная отвязка монитора.
+ *                     {@code false} — потеря сигнала (HUD): только выход из FPV/WRB, дрон остаётся.
+ */
+public record DroneSignalLostPacket(UUID droneId, boolean selfDestruct) implements CustomPacketPayload {
 
     public static final Type<DroneSignalLostPacket> TYPE = new Type<>(Wrbdrones.loc("drone_signal_lost"));
 
     public static final StreamCodec<ByteBuf, DroneSignalLostPacket> STREAM_CODEC = StreamCodec.composite(
             ByteBufCodecs.STRING_UTF8.map(UUID::fromString, UUID::toString),
             DroneSignalLostPacket::droneId,
+            ByteBufCodecs.BOOL,
+            DroneSignalLostPacket::selfDestruct,
             DroneSignalLostPacket::new);
 
     public static void handler(DroneSignalLostPacket packet, IPayloadContext ctx) {
@@ -45,7 +51,7 @@ public record DroneSignalLostPacket(UUID droneId) implements CustomPacketPayload
                 return;
             }
 
-            drone.handleSignalLoss(sender);
+            drone.handleSignalLoss(sender, packet.selfDestruct());
         });
     }
 
@@ -69,12 +75,12 @@ public record DroneSignalLostPacket(UUID droneId) implements CustomPacketPayload
         }
 
         var tag = NBTTool.getTag(heldStack);
-        if (!tag.getBoolean(com.atsuishio.superbwarfare.item.Monitor.LINKED)
+        if (!tag.getBoolean(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED)
                 || !tag.getBoolean("Using")) {
             return false;
         }
 
-        return drone.getStringUUID().equals(tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE));
+        return drone.getStringUUID().equals(tag.getString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE));
     }
 
     @Override

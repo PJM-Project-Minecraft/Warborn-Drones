@@ -36,13 +36,13 @@ public record ExitDroneControlPacket() implements CustomPacketPayload {
 
             // Проверяем, что монитор связан и используется
             var tag = NBTTool.getTag(stack);
-            if (!tag.getBoolean(com.atsuishio.superbwarfare.item.Monitor.LINKED)
+            if (!tag.getBoolean(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED)
                     || !tag.getBoolean("Using")) {
                 return;
             }
 
             // Получаем дрон
-            String droneId = tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE);
+            String droneId = tag.getString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE);
             if (droneId == null || droneId.isEmpty() || droneId.equals("none")) {
                 return;
             }

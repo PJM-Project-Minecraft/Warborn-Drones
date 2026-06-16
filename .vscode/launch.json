@@ -12,13 +12,13 @@
       "projectName": "wrbdrones",
       "mainClass": "net.neoforged.devlaunch.Main",
       "args": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\clientRunProgramArgs.txt"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/clientRunProgramArgs.txt"
       ],
       "vmArgs": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\clientRunVmArgs.txt",
-        "-Dfml.modFolders\u003dwrbdrones%%C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\bin\\main"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/clientRunVmArgs.txt",
+        "-Dfml.modFolders\u003dwrbdrones%%/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/bin/main"
       ],
-      "cwd": "${workspaceFolder}\\run",
+      "cwd": "${workspaceFolder}/run",
       "env": {},
       "console": "internalConsole",
       "shortenCommandLine": "none"
@@ -34,13 +34,13 @@
       "projectName": "wrbdrones",
       "mainClass": "net.neoforged.devlaunch.Main",
       "args": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\dataRunProgramArgs.txt"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/dataRunProgramArgs.txt"
       ],
       "vmArgs": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\dataRunVmArgs.txt",
-        "-Dfml.modFolders\u003dwrbdrones%%C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\bin\\main"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/dataRunVmArgs.txt",
+        "-Dfml.modFolders\u003dwrbdrones%%/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/bin/main"
       ],
-      "cwd": "${workspaceFolder}\\run",
+      "cwd": "${workspaceFolder}/run",
       "env": {},
       "console": "internalConsole",
       "shortenCommandLine": "none"
@@ -56,13 +56,13 @@
       "projectName": "wrbdrones",
       "mainClass": "net.neoforged.devlaunch.Main",
       "args": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\gameTestServerRunProgramArgs.txt"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/gameTestServerRunProgramArgs.txt"
       ],
       "vmArgs": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\gameTestServerRunVmArgs.txt",
-        "-Dfml.modFolders\u003dwrbdrones%%C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\bin\\main"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/gameTestServerRunVmArgs.txt",
+        "-Dfml.modFolders\u003dwrbdrones%%/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/bin/main"
       ],
-      "cwd": "${workspaceFolder}\\run",
+      "cwd": "${workspaceFolder}/run",
       "env": {},
       "console": "internalConsole",
       "shortenCommandLine": "none"
@@ -78,13 +78,13 @@
       "projectName": "wrbdrones",
       "mainClass": "net.neoforged.devlaunch.Main",
       "args": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\serverRunProgramArgs.txt"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/serverRunProgramArgs.txt"
       ],
       "vmArgs": [
-        "@C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\build\\moddev\\serverRunVmArgs.txt",
-        "-Dfml.modFolders\u003dwrbdrones%%C:\\Users\\kniki\\OneDrive\\Desktop\\NeoForge\\!Curseforge Mods\\WRBDrones\\bin\\main"
+        "@/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/build/moddev/serverRunVmArgs.txt",
+        "-Dfml.modFolders\u003dwrbdrones%%/home/liko/Разработка/NeoForge/!Curseforge Mods/WRBDrones/bin/main"
       ],
-      "cwd": "${workspaceFolder}\\run",
+      "cwd": "${workspaceFolder}/run",
       "env": {},
       "console": "internalConsole",
       "shortenCommandLine": "none"

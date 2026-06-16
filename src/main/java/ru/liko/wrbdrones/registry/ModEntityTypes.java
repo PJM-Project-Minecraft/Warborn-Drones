@@ -7,12 +7,14 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import ru.liko.wrbdrones.Wrbdrones;
 import ru.liko.wrbdrones.entity.FpvDroneEntity;
+import ru.liko.wrbdrones.entity.LancetLaunchPlatformEntity;
 import ru.liko.wrbdrones.entity.MavicDroneNoDropEntity;
 import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
 import ru.liko.wrbdrones.entity.PlayerDecoyEntity;
 import ru.liko.wrbdrones.entity.RebEntity;
 import ru.liko.wrbdrones.entity.RebMiniEntity;
 import ru.liko.wrbdrones.entity.Shahed136Entity;
+import ru.liko.wrbdrones.entity.ZalaLancetEntity;
 
 public final class ModEntityTypes {
         private ModEntityTypes() {
@@ -52,6 +54,27 @@ public final class ModEntityTypes {
                                         .updateInterval(1)
                                         .build(Wrbdrones.loc("fpv_drone").toString()));
 
+        public static final DeferredHolder<EntityType<?>, EntityType<ZalaLancetEntity>> ZALA_LANCET = REGISTRY
+                        .register("zala_lancet",
+                                        () -> EntityType.Builder
+                                                        .<ZalaLancetEntity>of(ZalaLancetEntity::new,
+                                                                        MobCategory.MISC)
+                                                        .sized(1.25F, 0.45F)
+                                                        .clientTrackingRange(96)
+                                                        .updateInterval(1)
+                                                        .build(Wrbdrones.loc("zala_lancet").toString()));
+
+        public static final DeferredHolder<EntityType<?>, EntityType<LancetLaunchPlatformEntity>> LANCET_LAUNCH_PLATFORM = REGISTRY
+                        .register("lancet_launch_platform",
+                                        () -> EntityType.Builder
+                                                        .<LancetLaunchPlatformEntity>of(
+                                                                        LancetLaunchPlatformEntity::new,
+                                                                        MobCategory.MISC)
+                                                        .sized(4.0F, 2.4F)
+                                                        .clientTrackingRange(96)
+                                                        .updateInterval(2)
+                                                        .build(Wrbdrones.loc("lancet_launch_platform").toString()));
+
         public static final DeferredHolder<EntityType<?>, EntityType<RebEntity>> REB = REGISTRY.register("reb",
                         () -> EntityType.Builder.<RebEntity>of(RebEntity::new, MobCategory.MISC)
                                         .sized(1.0F, 2.0F)
@@ -84,4 +107,3 @@ public final class ModEntityTypes {
                                                         .updateInterval(2)
                                                         .build(Wrbdrones.loc("player_decoy").toString()));
 }
-

@@ -29,7 +29,7 @@ import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import ru.liko.wrbdrones.entity.MavicDroneNoDropEntity;
 import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
 import ru.liko.wrbdrones.network.DroneSignalLostPacket;
-import ru.liko.wrbdrones.util.RebUtils;
+import ru.liko.wrbdrones.util.SignalCalculator;
 
 import java.util.HashSet;
 import java.util.Set;
@@ -51,6 +51,10 @@ public class MavicHudOverlay {
     private static final int SIGNAL_BAR_COLOR = 0xFF00FF00; // Зеленый для полосок сигнала
     private static final int SIGNAL_BAR_EMPTY_COLOR = 0x66FFFFFF; // Полупрозрачный белый для пустых полосок
     private static final int COMPASS_COLOR = 0xFFFFFFFF; // Белый для компаса
+
+    /** Масштаб OSD-шрифта MAX7456. */
+    private static final float OSD_SCALE = 0.75f;
+    private static final int OSD_LINE = 14;
 
     private static final Set<UUID> SIGNAL_LOSS_REPORTED = new HashSet<>();
 
@@ -113,23 +117,26 @@ public class MavicHudOverlay {
         double speed = drone.getDeltaMovement().length() * 20.0; // м/с (1 блок/тик = 20 м/с)
         float yaw = Mth.lerp(partialTick, drone.yRotO, drone.getYRot());
 
-        // Получаем коэффициент глушения сигнала от РЭБ
-        double rebJammingFactor = addonDrone != null ? getRebJammingFactor(addonDrone) : 0.0;
-
-        // Вычисляем уровень сигнала на основе расстояния
+        // Единая модель сигнала: дистанция + LOS (стены) + высота + РЭБ.
         double maxDistance = ServerConfig.MAVIC_MAX_DISTANCE.get();
         double signalLossDistance = ServerConfig.MAVIC_SIGNAL_LOSS_DISTANCE.get();
-
-        // Вычисляем процент сигнала
-        double signalPercent = 1.0;
-        if (distance > signalLossDistance && maxDistance > signalLossDistance) {
-            double norm = Math.min(1.0, (distance - signalLossDistance) / (maxDistance - signalLossDistance));
-            signalPercent = 1.0 - norm;
-            signalPercent = signalPercent * signalPercent; // Квадратичная функция
+        double signalPercent;
+        if (addonDrone != null) {
+            SignalCalculator.SignalResult sig = SignalCalculator.compute(
+                    drone.level(), operatorPos, drone, maxDistance, signalLossDistance);
+            signalPercent = sig.finalQuality();
+        } else {
+            // Не AddonDrone: оставим простой fallback по дистанции.
+            if (distance <= signalLossDistance) {
+                signalPercent = 1.0;
+            } else if (maxDistance > signalLossDistance) {
+                double norm = Math.min(1.0, (distance - signalLossDistance) / (maxDistance - signalLossDistance));
+                double f = 1.0 - norm;
+                signalPercent = f * f;
+            } else {
+                signalPercent = 0.0;
+            }
         }
-
-        // Применяем глушение от РЭБ
-        signalPercent = signalPercent * (1.0 - rebJammingFactor);
 
         // Вычисляем уровень сигнала (0-5)
         int signalLevel = calculateSignalLevel(signalPercent);
@@ -158,9 +165,12 @@ public class MavicHudOverlay {
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
         // Рисуем новые элементы интерфейса
-        renderSignalBars(guiGraphics, screenWidth, screenHeight, signalLevel);
-        renderCompass(guiGraphics, screenWidth, screenHeight, yaw);
+        renderHomeIndicator(guiGraphics, screenWidth, screenHeight, operatorPos);
         renderInfo(guiGraphics, screenWidth, screenHeight, altitude, distance, speed);
+        
+        // Рисуем OSD сигнал
+        String signalOsdText = getOsdSignal(signalLevel);
+        OsdFont.drawString(guiGraphics, signalOsdText, 10, 10, OSD_SCALE, SIGNAL_BAR_COLOR);
 
         // Рисуем предупреждение о потере сигнала, если сигнал потерян (включая глушение
         // РЭБ)
@@ -200,40 +210,24 @@ public class MavicHudOverlay {
      */
     private static void handleMavicSignalLoss(AddonDroneEntity drone, int signalLevel) {
         UUID droneId = drone.getUUID();
-        if (signalLevel <= 1) {
+        if (signalLevel <= 0) {
+            // Ровно 0 уровней — самоуничтожение (взрыв) согласно конфигу.
             if (SIGNAL_LOSS_REPORTED.add(droneId)) {
-                PacketDistributor.sendToServer(new DroneSignalLostPacket(droneId));
+                boolean destroy = ru.liko.wrbdrones.config.ServerConfig.SIGNAL_DESTROY_ON_ZERO_ENABLED.get();
+                PacketDistributor.sendToServer(new DroneSignalLostPacket(droneId, destroy));
+            }
+        } else if (signalLevel <= 1) {
+            if (SIGNAL_LOSS_REPORTED.add(droneId)) {
+                PacketDistributor.sendToServer(new DroneSignalLostPacket(droneId, false));
             }
         } else {
             SIGNAL_LOSS_REPORTED.remove(droneId);
         }
     }
 
-    /**
-     * Возвращает коэффициент глушения сигнала от РЭБ.
-     */
-    private static double getRebJammingFactor(AddonDroneEntity drone) {
-        return RebUtils.getRebFactor(drone);
-    }
 
-    /**
-     * Рисует индикатор уровня сигнала (Wi-Fi стиль) в левом верхнем углу
-     */
-    private static void renderSignalBars(GuiGraphics guiGraphics, int screenWidth, int screenHeight, int signalLevel) {
-        int x = 10;
-        int y = 10;
-        int barWidth = 4;
-        int barSpacing = 2;
-        int maxBars = 5;
-
-        for (int i = 0; i < maxBars; i++) {
-            int barHeight = 3 + i * 2; // Высота увеличивается для каждой полоски
-            int barX = x + i * (barWidth + barSpacing);
-            int barY = y + (maxBars - i - 1) * 2; // Выравнивание по нижнему краю
-
-            int color = (i < signalLevel) ? SIGNAL_BAR_COLOR : SIGNAL_BAR_EMPTY_COLOR;
-            guiGraphics.fill(barX, barY, barX + barWidth, barY + barHeight, color);
-        }
+    private static String getOsdSignal(int signalLevel) {
+        return OsdFont.SIGNAL + " " + (signalLevel * 20) + "%";
     }
 
     /**
@@ -261,56 +255,16 @@ public class MavicHudOverlay {
     }
 
     /**
-     * Рисует индикатор направления (стрелка на север) в нижней части экрана
+     * Индикатор «домой»: домик-глиф + стрелка, указывающая на оператора (HOME).
+     * Направление считается через базис камеры дрона (см. {@link OsdFont#homeArrow}).
      */
-    private static void renderCompass(GuiGraphics guiGraphics, int screenWidth, int screenHeight, float yaw) {
-        Minecraft mc = Minecraft.getInstance();
+    private static void renderHomeIndicator(GuiGraphics guiGraphics, int screenWidth, int screenHeight, Vec3 operatorPos) {
         int centerX = screenWidth / 2;
-        int y = screenHeight - 100; // Перемещено вниз
-        int compassRadius = 50;
+        int y = screenHeight - 100;
 
-        // Нормализуем yaw к диапазону 0-360
-        float normalizedYaw = (yaw % 360 + 360) % 360;
-
-        // Вычисляем направление на север (0 градусов = север)
-        float northOffset = -normalizedYaw; // Инвертируем, так как yaw увеличивается по часовой стрелке
-
-        guiGraphics.pose().pushPose();
-        guiGraphics.pose().translate(centerX, y, 0);
-        guiGraphics.pose().mulPose(Axis.ZP.rotationDegrees(northOffset));
-        guiGraphics.pose().translate(-centerX, -y, 0);
-
-        // Рисуем стрелку на север
-        Tesselator tesselator = Tesselator.getInstance();
-        BufferBuilder buffer = tesselator.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
-        Matrix4f matrix = guiGraphics.pose().last().pose();
-
-        RenderSystem.setShader(GameRenderer::getPositionColorShader);
-
-        // Стрелка (треугольник, указывающий на север)
-        float arrowSize = 8;
-        buffer.addVertex(matrix, centerX, y - compassRadius, 0).setColor(COMPASS_COLOR);
-        buffer.addVertex(matrix, centerX - arrowSize, y - compassRadius + arrowSize * 2, 0).setColor(COMPASS_COLOR);
-        buffer.addVertex(matrix, centerX + arrowSize, y - compassRadius + arrowSize * 2, 0).setColor(COMPASS_COLOR);
-
-        BufferUploader.drawWithShader(buffer.buildOrThrow());
-
-        // Рисуем букву "N" для севера
-        String northLabel = "N";
-        int labelWidth = mc.font.width(northLabel);
-        drawOutlinedString(guiGraphics, mc.font, Component.literal(northLabel),
-                centerX - labelWidth / 2, y - compassRadius - 12, COMPASS_COLOR);
-
-        guiGraphics.pose().popPose();
-    }
-
-    private static void drawOutlinedString(GuiGraphics gfx, net.minecraft.client.gui.Font font, Component text, int x, int y, int color) {
-        int outlineColor = 0xFF000000;
-        gfx.drawString(font, text, x - 1, y, outlineColor, false);
-        gfx.drawString(font, text, x + 1, y, outlineColor, false);
-        gfx.drawString(font, text, x, y - 1, outlineColor, false);
-        gfx.drawString(font, text, x, y + 1, outlineColor, false);
-        gfx.drawString(font, text, x, y, color, false);
+        char arrow = OsdFont.homeArrow(operatorPos);
+        String text = OsdFont.HOUSE + " " + arrow;
+        OsdFont.drawCentered(guiGraphics, text, centerX, y - OsdFont.height(OSD_SCALE) / 2, OSD_SCALE, COMPASS_COLOR);
     }
 
     /**
@@ -319,21 +273,24 @@ public class MavicHudOverlay {
      */
     private static void renderInfo(GuiGraphics guiGraphics, int screenWidth, int screenHeight,
             double altitude, double distance, double speed) {
-        Minecraft mc = Minecraft.getInstance();
         int y = screenHeight - 80; // Поднято выше (было -30)
         int x = 10;
-        int lineHeight = 12;
+        int lineHeight = OSD_LINE;
         int spacing = 2;
 
-        // Форматируем значения
-        String altitudeText = String.format("H: %.1fm", altitude);
-        String distanceText = String.format("D: %.1fm", distance);
-        String speedText = String.format("S: %.1fm/s", speed);
+        // Форматируем значения (OSD-шрифт только ASCII, в верхнем регистре)
+        String satsText = OsdFont.SAT + " 14";
+        String batteryText = OsdFont.BATTERY + " 100%";
+        String altitudeText = String.format("ALT: %.1fM", altitude);
+        String distanceText = String.format("%c %.1fM", OsdFont.HOME, distance);
+        String speedText = String.format("%.0f %c", speed * 3.6, OsdFont.KMH);
 
-        // Рисуем текст
-        drawOutlinedString(guiGraphics, mc.font, Component.literal(altitudeText), x, y, TEXT_COLOR);
-        drawOutlinedString(guiGraphics, mc.font, Component.literal(distanceText), x, y + lineHeight + spacing, TEXT_COLOR);
-        drawOutlinedString(guiGraphics, mc.font, Component.literal(speedText), x, y + (lineHeight + spacing) * 2, TEXT_COLOR);
+        // Рисуем текст OSD-шрифтом
+        OsdFont.drawString(guiGraphics, batteryText, x, y - (lineHeight + spacing) * 2, OSD_SCALE, TEXT_COLOR);
+        OsdFont.drawString(guiGraphics, satsText, x, y - (lineHeight + spacing), OSD_SCALE, TEXT_COLOR);
+        OsdFont.drawString(guiGraphics, altitudeText, x, y, OSD_SCALE, TEXT_COLOR);
+        OsdFont.drawString(guiGraphics, distanceText, x, y + lineHeight + spacing, OSD_SCALE, TEXT_COLOR);
+        OsdFont.drawString(guiGraphics, speedText, x, y + (lineHeight + spacing) * 2, OSD_SCALE, TEXT_COLOR);
     }
 
     /**
@@ -342,11 +299,12 @@ public class MavicHudOverlay {
     private static void renderSignalLossWarning(GuiGraphics guiGraphics, int screenWidth, int screenHeight,
             float partialTick) {
         Minecraft mc = Minecraft.getInstance();
-        String warningText = "ПОТЕРЯ СИГНАЛА";
+        // OSD-шрифт MAX7456 без кириллицы — используем латиницу.
+        String warningText = "SIGNAL LOSS";
 
-        // Вычисляем размеры текста
-        int textWidth = mc.font.width(warningText);
-        int textHeight = mc.font.lineHeight;
+        // Вычисляем размеры текста OSD-шрифтом
+        int textWidth = OsdFont.width(warningText, OSD_SCALE);
+        int textHeight = OsdFont.height(OSD_SCALE);
 
         // Позиция в центре экрана, немного выше центра
         int centerX = screenWidth / 2;
@@ -369,16 +327,9 @@ public class MavicHudOverlay {
         guiGraphics.fill(centerX - bgWidth / 2, centerY - bgHeight / 2,
                 centerX + bgWidth / 2, centerY + bgHeight / 2, bgColor);
 
-        // Рисуем красный текст с пульсацией
+        // Рисуем красный текст с пульсацией (контур уже встроен в OSD-глифы)
         int textAlpha = (int) (0xFF * pulse);
         int textColor = (textAlpha << 24) | 0xFF0000; // Красный текст с пульсирующей яркостью
-
-        // Рисуем текст с тенью для лучшей читаемости
-        guiGraphics.drawString(mc.font, Component.literal(warningText),
-                centerX - textWidth / 2 + 1, centerY - textHeight / 2 + 1,
-                0x80000000, false); // Черная тень
-        guiGraphics.drawString(mc.font, Component.literal(warningText),
-                centerX - textWidth / 2, centerY - textHeight / 2,
-                textColor, false); // Красный текст
+        OsdFont.drawCentered(guiGraphics, warningText, centerX, centerY - textHeight / 2, OSD_SCALE, textColor);
     }
 }

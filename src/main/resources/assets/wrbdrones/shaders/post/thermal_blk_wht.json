@@ -1,0 +1,16 @@
+{
+  "targets": ["swap"],
+  "passes": [
+    {
+      "name": "wrbdrones:thermal_blk_wht",
+      "intarget": "minecraft:main",
+      "outtarget": "swap",
+      "uniforms": []
+    },
+    {
+      "name": "blit",
+      "intarget": "swap",
+      "outtarget": "minecraft:main"
+    }
+  ]
+}

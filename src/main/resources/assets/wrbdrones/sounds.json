@@ -2,7 +2,7 @@
   "fpv_drone_engine": {
     "sounds": [
       {
-        "attenuation_distance": 48,
+        "attenuation_distance": 4096,
         "stream": false,
         "name": "wrbdrones:quad_engine_full_01"
       }

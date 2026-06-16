@@ -1,0 +1,28 @@
+{
+  "type": "wrbdrones:drone_assembling",
+  "assembly_ticks": 60,
+  "ingredients": [
+    {
+      "ingredient": {
+        "item": "superbwarfare:cell"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:data_chip_substrate"
+      },
+      "count": 1
+    },
+    {
+      "ingredient": {
+        "item": "superbwarfare:copper_plate"
+      },
+      "count": 2
+    }
+  ],
+  "result": {
+    "item": "wrbdrones:radio",
+    "count": 1
+  }
+}

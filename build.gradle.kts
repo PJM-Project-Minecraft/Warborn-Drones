@@ -14,6 +14,10 @@ group = "ru.liko.wrbdrones"
 
 repositories {
     mavenLocal()
+    // flatDir для локальных jar-ок SBW (например, simplebedrockmodel)
+    flatDir {
+        dir(file("../../!libs and references/SuperbWarfare/libs"))
+    }
     maven {
         url = uri("https://maven.theillusivec4.top/")
         content {
@@ -40,6 +44,20 @@ repositories {
     maven {
         url = uri("https://modmaven.dev/")
     }
+    // Kotlin for Forge — нужен SBW 0.8.9 (thedarkcolour:kotlinforforge-neoforge:5.10.0)
+    maven {
+        name = "Kotlin for Forge"
+        url = uri("https://thedarkcolour.github.io/KotlinForForge/")
+    }
+    // JitPack — нужен SBW 0.8.9 для jarJar диапазона com.github.mcmodderanchor:simplebedrockmodel
+    maven {
+        url = uri("https://www.jitpack.io")
+        content {
+            includeGroup("com.github.mcmodderanchor")
+        }
+    }
+    // mavenCentral — нужен для транзитивных зависимостей kotlinforforge
+    mavenCentral()
 }
 
 base {

@@ -225,35 +225,46 @@ public class PlayerDecoyEntity extends LivingEntity {
             return false;
         }
 
-        if (this.isInvulnerableTo(source)) {
-            return false;
-        }
-
         ServerLevel serverLevel = (ServerLevel) this.level();
         ServerPlayer owner = getOwnerPlayer(serverLevel);
 
-        if (owner != null && !owner.isRemoved()) {
-            DamageSource forwardedSource = source;
-            if (!(source.getEntity() instanceof PlayerDecoyEntity)) {
-                forwardedSource = new DamageSource(
-                        source.typeHolder(),
-                        source.getDirectEntity(),
-                        this,
-                        source.getSourcePosition());
-            }
-            boolean damaged = owner.hurt(forwardedSource, amount);
+        if (owner != null && !owner.isRemoved() && !owner.isDeadOrDying()) {
+            // Принудительно снимаем i-frames владельца, чтобы урон всегда проходил.
+            int savedInvuln = owner.invulnerableTime;
+            owner.invulnerableTime = 0;
 
-            if (damaged) {
-                this.setHealth(owner.getHealth());
-                this.storedHealth = owner.getHealth();
+            // Оборачиваем DamageSource так, чтобы source.getEntity() возвращал декой.
+            // Это необходимо, чтобы DroneControlDamageHandler распознавал урон как
+            // "переданный от декоя" и не блокировал его.
+            DamageSource decoySource = new DamageSource(
+                    source.typeHolder(),
+                    source.getDirectEntity(),
+                    this // causingEntity = декой
+            );
 
-                this.hurtMarked = true;
-                this.hurtTime = 10;
-                this.hurtDuration = 10;
+            boolean damaged = false;
+            try {
+                damaged = owner.hurt(decoySource, amount);
+            } finally {
+                if (!damaged && owner.invulnerableTime == 0) {
+                    owner.invulnerableTime = savedInvuln;
+                }
             }
+
+            // Визуальная реакция декоя вне зависимости от того, прошёл ли урон по владельцу
+            // (например, в креативе владелец неуязвим, но кукла должна среагировать).
+            this.hurtMarked = true;
+            this.hurtTime = 10;
+            this.hurtDuration = 10;
+            this.markHurt();
 
             if (owner.isDeadOrDying()) {
+                this.setHealth(0.0f);
+                this.storedHealth = 0.0f;
                 this.discard();
+            } else {
+                this.setHealth(owner.getHealth());
+                this.storedHealth = owner.getHealth();
             }
 
             return damaged;
@@ -330,15 +341,24 @@ public class PlayerDecoyEntity extends LivingEntity {
         tag.putByte("ModelParts", this.entityData.get(PLAYER_MODEL_PARTS));
         tag.putFloat("StoredHealth", this.storedHealth);
 
+        // В 1.21+ ItemStack.save бросает IllegalStateException для EMPTY — как у мобов Vanilla.
         ListTag armorTag = new ListTag();
         for (ItemStack stack : this.armorItems) {
-            armorTag.add(stack.save(this.level().registryAccess(), new CompoundTag()));
+            CompoundTag slotTag = new CompoundTag();
+            if (!stack.isEmpty()) {
+                stack.save(this.level().registryAccess(), slotTag);
+            }
+            armorTag.add(slotTag);
         }
         tag.put("ArmorItems", armorTag);
 
         ListTag handTag = new ListTag();
         for (ItemStack stack : this.handItems) {
-            handTag.add(stack.save(this.level().registryAccess(), new CompoundTag()));
+            CompoundTag slotTag = new CompoundTag();
+            if (!stack.isEmpty()) {
+                stack.save(this.level().registryAccess(), slotTag);
+            }
+            handTag.add(slotTag);
         }
         tag.put("HandItems", handTag);
 
@@ -484,14 +504,6 @@ public class PlayerDecoyEntity extends LivingEntity {
 
     @Override
     public boolean isInvulnerable() {
-        return false;
-    }
-
-    @Override
-    public boolean isInvulnerableTo(DamageSource source) {
-        if (source.is(net.minecraft.tags.DamageTypeTags.BYPASSES_INVULNERABILITY)) {
-            return false;
-        }
         return false;
     }
 

@@ -23,7 +23,9 @@ public final class ModCreativeTabs {
                         output.accept(ModItems.MAVIC_DRONE_WITH_DROP.get());
                         output.accept(ModItems.MAVIC_DRONE_NO_DROP.get());
                         output.accept(ModItems.FPV_DRONE.get());
+                        output.accept(ModItems.ZALA_LANCET.get());
                         output.accept(ModItems.SHAHED136.get());
+                        output.accept(ModItems.DRONETABLE.get());
                         output.accept(ModItems.RADIO.get());
                         output.accept(ModItems.REB.get());
                         output.accept(ModItems.REB_MINI.get());

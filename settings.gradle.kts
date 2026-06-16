@@ -14,8 +14,11 @@ plugins {
 
 rootProject.name = "wrbdrones"
 
+// SuperbWarfare лежит вне репозитория WRBDrones (общая папка с исходниками SBW)
+val superbWarfareRoot = settingsDir.resolve("../../!libs and references/SuperbWarfare").normalize()
+
 // Используем composite build вместо include для отдельного проекта SuperbWarfare
-includeBuild("SuperbWarfare") {
+includeBuild(superbWarfareRoot) {
     dependencySubstitution {
         substitute(module("com.atsuishio:superbwarfare")).using(project(":"))
     }

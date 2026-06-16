@@ -6,14 +6,19 @@
   "refmap": "mixins.wrbdrones.refmap.json",
   "mixins": [
     "VehicleDamageParticleMixin",
-    "DroneDropMixin"
+    "DroneDropMixin",
+    "PlayerChunkSenderMixin"
   ],
   "client": [
     "DroneHudOverlayMixin",
     "DroneRendererMixin",
+    "client.CameraMixinWRB",
     "client.SoundManagerAccessor",
     "client.SoundEngineAccessor",
-    "client.ChannelAccessor"
+    "client.ChannelAccessor",
+    "client.LivingEntityRendererMixin",
+    "client.EntityRendererMixin",
+    "client.DimensionTypeMixin"
   ],
   "injectors": {
     "defaultRequire": 1

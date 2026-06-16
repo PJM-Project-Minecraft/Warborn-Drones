@@ -1,5 +1,6 @@
 package ru.liko.wrbdrones.entity;
 
+import com.atsuishio.superbwarfare.data.CustomData;
 import com.atsuishio.superbwarfare.entity.vehicle.DroneEntity;
 import com.atsuishio.superbwarfare.init.ModItems;
 import com.atsuishio.superbwarfare.tools.EntityFindUtil;
@@ -7,6 +8,7 @@ import com.mojang.authlib.GameProfile;
 import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -26,21 +28,18 @@ import net.minecraft.world.level.Level;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
-import net.neoforged.neoforge.common.NeoForge;
+import net.minecraft.world.level.GameType;
 import net.neoforged.neoforge.capabilities.Capabilities;
 import net.neoforged.neoforge.common.util.FakePlayer;
 import net.neoforged.neoforge.common.util.FakePlayerFactory;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
 import com.atsuishio.superbwarfare.tools.NBTTool;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import ru.liko.wrbdrones.registry.ModEntityTypes;
 import ru.liko.wrbdrones.registry.ModSounds;
 
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.WeakHashMap;
 
 /**
  * Base wrapper that lets us reuse SuperbWarfare's drone behaviour while
@@ -60,8 +59,10 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
     @Override
     public float getEngineSoundVolume() {
-        float base = super.getEngineSoundVolume();
-        return ClientAudio.adjustExteriorVolume(this, base);
+        // Внешний звук дрона воспроизводится нашим DroneSoundHandler (Shahed-подобная система: доплер, HF-фильтр, distance volume).
+        // Заглушаем родной SBW engine sound, чтобы параллельно не играла вторая звуковая ветка с MC-атенуацией, ломающая позиционирование.
+        // Внутренний звук (FPV) играет независимый DroneInteriorSoundHandler.
+        return 0.0f;
     }
 
     /**
@@ -253,7 +254,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
         if (!stack.isEmpty() && !player.isCrouching()) {
             // Проверяем, является ли предмет боеприпасом для дрона
             // Если это боеприпас (имеет ID из SuperbWarfare), проверяем ограничения
-            if (itemId.startsWith("superbwarfare:") && !canAcceptAttachment(stack)) {
+            if (CustomData.DRONE_ATTACHMENT.get(itemId) != null && !canAcceptAttachment(stack)) {
                 player.displayClientMessage(
                         Component.translatable("tips.wrbdrones.drone.attachment_not_allowed")
                                 .withStyle(ChatFormatting.RED),
@@ -300,10 +301,10 @@ public abstract class AddonDroneEntity extends DroneEntity {
          * .filter(stack -> stack.getItem() == ModItems.MONITOR.get())
          * .forEach(itemStack -> {
          * if
-         * (NBTTool.getTag(itemStack).getString(com.atsuishio.superbwarfare.item.Monitor
+         * (NBTTool.getTag(itemStack).getString(com.atsuishio.superbwarfare.item.misc.MonitorItem
          * .LINKED_DRONE)
          * .equals(this.getStringUUID())) {
-         * com.atsuishio.superbwarfare.item.Monitor.disLink(itemStack, player);
+         * com.atsuishio.superbwarfare.item.misc.MonitorItem.disLink(itemStack, player);
          * }
          * });
          * } catch (Exception e) {
@@ -335,6 +336,8 @@ public abstract class AddonDroneEntity extends DroneEntity {
             return new ItemStack(ru.liko.wrbdrones.registry.ModItems.MAVIC_DRONE_NO_DROP.get());
         } else if (entityId.equals("wrbdrones:fpv_drone")) {
             return new ItemStack(ru.liko.wrbdrones.registry.ModItems.FPV_DRONE.get());
+        } else if (entityId.equals("wrbdrones:zala_lancet")) {
+            return new ItemStack(ru.liko.wrbdrones.registry.ModItems.ZALA_LANCET.get());
         }
 
         return ItemStack.EMPTY;
@@ -375,28 +378,30 @@ public abstract class AddonDroneEntity extends DroneEntity {
             DISPLAY_DATA_FIELD = DroneEntity.class.getDeclaredField("DISPLAY_DATA");
             MAX_AMMO_FIELD = DroneEntity.class.getDeclaredField("MAX_AMMO");
 
-            // Пробуем получить AMMO из VehicleEntity через DroneEntity (наследование)
-            // Сначала пробуем через родительский класс DroneEntity
-            Class<?> vehicleEntityClass = DroneEntity.class.getSuperclass();
-
-            if (vehicleEntityClass != null) {
-                try {
-                    AMMO_FIELD = vehicleEntityClass.getDeclaredField("AMMO");
-                } catch (NoSuchFieldException e) {
-                    // Если не найдено, пробуем через Class.forName
+            // AMMO объявлен в DroneEntity (не в VehicleEntity)
+            try {
+                AMMO_FIELD = DroneEntity.class.getDeclaredField("AMMO");
+            } catch (NoSuchFieldException e) {
+                Class<?> vehicleEntityClass = DroneEntity.class.getSuperclass();
+                if (vehicleEntityClass != null) {
                     try {
-                        vehicleEntityClass = Class
-                                .forName("com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity");
                         AMMO_FIELD = vehicleEntityClass.getDeclaredField("AMMO");
-                    } catch (Exception e2) {
-                        // Если поле не найдено, пробуем через все поля класса
-                        java.lang.reflect.Field[] fields = vehicleEntityClass.getDeclaredFields();
-                        for (java.lang.reflect.Field field : fields) {
-                            if (field.getName().equals("AMMO") ||
-                                    (field.getType().getName().contains("EntityDataAccessor") &&
-                                            field.getName().toUpperCase().contains("AMMO"))) {
-                                AMMO_FIELD = field;
-                                break;
+                    } catch (NoSuchFieldException e2) {
+                        try {
+                            vehicleEntityClass = Class
+                                    .forName("com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity");
+                            AMMO_FIELD = vehicleEntityClass.getDeclaredField("AMMO");
+                        } catch (Exception e3) {
+                            java.lang.reflect.Field[] fields = vehicleEntityClass != null
+                                    ? vehicleEntityClass.getDeclaredFields()
+                                    : new java.lang.reflect.Field[0];
+                            for (java.lang.reflect.Field field : fields) {
+                                if (field.getName().equals("AMMO") ||
+                                        (field.getType().getName().contains("EntityDataAccessor") &&
+                                                field.getName().toUpperCase().contains("AMMO"))) {
+                                    AMMO_FIELD = field;
+                                    break;
+                                }
                             }
                         }
                     }
@@ -673,20 +678,22 @@ public abstract class AddonDroneEntity extends DroneEntity {
             // телепортируется к дрону
             ru.liko.wrbdrones.util.PlayerDecoyManager.createDecoy(player, this);
 
-            // Телепортируем игрока к дрону для загрузки чанков
-            // Используем телепорт вместо езды, чтобы избежать коллизий и обеспечить
-            // стабильную загрузку
+            // Переводим в спектаторский режим — гарантированно невидим для всех игроков
+            player.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
+
+            // Телепортируем игрока к дрону для работы FPV камеры и загрузки чанков.
+            // Принудительно выравниваем взгляд оператора по курсу дрона (yaw) и горизонту (pitch=0),
+            // чтобы камера-карданчик стартовала вперёд, а не повторяла случайное положение головы
+            // игрока в момент входа в управление. Исходные углы уже сохранены в controlSession
+            // и будут восстановлены при выходе.
             player.teleportTo(
                     droneLevel,
                     this.getX(),
                     this.getY() + this.getBbHeight() + 4.0,
                     this.getZ(),
-                    player.getYRot(),
-                    player.getXRot());
-            player.setNoGravity(true);
-            player.setInvisible(true);
-            player.setSilent(true);
-            player.noPhysics = true;
+                    this.getYRot(),
+                    0.0f);
+            player.setYHeadRot(this.getYRot());
         }
 
         return true;
@@ -709,23 +716,18 @@ public abstract class AddonDroneEntity extends DroneEntity {
         wrbdrones$endingControl = true;
         try {
 
-            // Восстанавливаем состояние игрока
-            player.setInvisible(false);
-            player.setSilent(false);
-            player.setNoGravity(false);
-            player.noPhysics = false;
-
             // Телепортируем назад на исходную позицию
             var session = controlSession;
             if (session != null && player.getServer() != null) {
                 ServerLevel target = player.getServer().getLevel(session.dimension);
                 if (target != null) {
-                    // Используем force teleport для надежности при смене измерений/далеких
-                    // дистанциях
                     player.teleportTo(target, session.originPos.x, session.originPos.y, session.originPos.z,
                             session.originYaw, session.originPitch);
                     player.fallDistance = 0.0f;
                 }
+                // Восстанавливаем игровой режим после телепорта
+                player.setInvisible(false);
+                player.gameMode.changeGameModeForPlayer(session.gameMode);
             }
 
             // Удаляем декой
@@ -739,6 +741,9 @@ public abstract class AddonDroneEntity extends DroneEntity {
         operatorPosition = null;
         wrbdrones$controllerUuid = null;
         updateOperatorPosition();
+
+        // Снимаем форсированную отправку чанков — все пути выхода из управления идут сюда.
+        ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(player.getUUID(), false);
     }
 
     /**
@@ -748,9 +753,18 @@ public abstract class AddonDroneEntity extends DroneEntity {
     private void wrbdrones$restoreControllerOnRemoval(ServerLevel serverLevel) {
         if (controlSession == null || wrbdrones$controllerUuid == null)
             return;
-        Player p = serverLevel.getPlayerByUUID(wrbdrones$controllerUuid);
-        if (p instanceof ServerPlayer sp) {
+        // Глобальный поиск по всему серверу: игрок мог быть телепортирован
+        // в другое измерение, и getPlayerByUUID(level) его бы не нашёл.
+        ServerPlayer sp = null;
+        net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+        if (server != null) {
+            sp = server.getPlayerList().getPlayer(wrbdrones$controllerUuid);
+        }
+        if (sp != null) {
             endRemoteControl(sp);
+        } else {
+            // Игрок не найден (вышел?) — принудительно удаляем декой
+            ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(wrbdrones$controllerUuid);
         }
     }
 
@@ -773,10 +787,11 @@ public abstract class AddonDroneEntity extends DroneEntity {
     }
 
     /**
-     * Вызывается при потере сигнала оператора.
-     * Инициирует взрыв дрона на сервере без периодических проверок.
+     * @param selfDestruct {@code true} только для ЛКМ по FPV (см. клиентский хендлер): {@link DroneEntity#destroy()} (боеприпас/камикадзе SBW)
+     *                     и полная отвязка мониторов. {@code false} — потеря сигнала с HUD: выход WRB/FPV,
+     *                     дрон не уничтожается.
      */
-    public void handleSignalLoss(@Nullable ServerPlayer source) {
+    public void handleSignalLoss(@Nullable ServerPlayer source, boolean selfDestruct) {
         if (this.level().isClientSide()) {
             return;
         }
@@ -787,21 +802,100 @@ public abstract class AddonDroneEntity extends DroneEntity {
             return;
         }
 
-        // Восстанавливаем игрока при потере сигнала (даже если source=null)
-        if (source != null) {
-            endRemoteControl(source);
+        if (selfDestruct) {
+            // Атрибуция ЛКМ-подрыва: камикадзе-взрыв в SBW читает LAST_ATTACKER_UUID.
+            // Перезаписываем его оператором, иначе автором будет последний попавший (напр. РПГ).
+            String attackerUuid = null;
+            if (source != null) {
+                attackerUuid = source.getStringUUID();
+            } else {
+                String controllerId = this.entityData.get(com.atsuishio.superbwarfare.entity.vehicle.DroneEntity.CONTROLLER);
+                if (controllerId != null && !controllerId.isEmpty() && !controllerId.equalsIgnoreCase("undefined")) {
+                    attackerUuid = controllerId;
+                }
+            }
+            if (attackerUuid != null) {
+                this.entityData.set(
+                        com.atsuishio.superbwarfare.entity.vehicle.base.VehicleEntity.LAST_ATTACKER_UUID,
+                        attackerUuid);
+            }
+
+            // Двойная отвязка: SBW destroy() сам трогает мониторы контроллера и теоретически может
+            // перетереть состояние, поэтому страхуемся проходом ДО и ПОСЛЕ destroy().
+            unlinkAllLinkedMonitors(serverLevel);
+            // Контролёр должен быть в измерении дрона, иначе SBW destroy() не находит игрока.
+            this.destroy();
+            unlinkAllLinkedMonitors(serverLevel);
+
+            // Явно завершаем remote control после destroy(), чтобы гарантировать удаление декоя.
+            // destroy() → discard() → remove() уже пытался это сделать, но мог не найти
+            // игрока через serverLevel.getPlayerByUUID (локальный поиск по одному уровню).
+            // Здесь используем глобальный поиск через getPlayerList() как страховку.
+            if (controlSession != null && wrbdrones$controllerUuid != null) {
+                ServerPlayer operator = source;
+                if (operator == null) {
+                    net.minecraft.server.MinecraftServer server = serverLevel.getServer();
+                    if (server != null) {
+                        operator = server.getPlayerList().getPlayer(wrbdrones$controllerUuid);
+                    }
+                }
+                if (operator != null) {
+                    endRemoteControl(operator);
+                } else {
+                    // Крайний случай: игрок не найден — принудительно удаляем декой
+                    ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(wrbdrones$controllerUuid);
+                    controlSession = null;
+                    wrbdrones$controllerUuid = null;
+                }
+            }
+            return;
+        }
+
+        ServerPlayer operator = source;
+        if (operator == null && wrbdrones$controllerUuid != null) {
+            MinecraftServer server = serverLevel.getServer();
+            if (server != null) {
+                operator = server.getPlayerList().getPlayer(wrbdrones$controllerUuid);
+            }
+        }
+        if (operator != null && controlSession != null) {
+            endRemoteControl(operator);
         } else {
             wrbdrones$restoreControllerOnRemoval(serverLevel);
         }
+        wrbdrones$clearMonitorFpvOnly(serverLevel);
+    }
 
-        unlinkAllLinkedMonitors(serverLevel);
+    /** Снимает только FPV ({@code Using=false}), связь с дроном в SBW сохраняется. */
+    private void wrbdrones$clearMonitorFpvOnly(ServerLevel level) {
+        Item monitorItem = ModItems.MONITOR.get();
+        if (monitorItem == null) {
+            return;
+        }
+        MinecraftServer server = level.getServer();
+        if (server == null) {
+            return;
+        }
+        String droneId = this.getStringUUID();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+            wrbdrones$clearUsingOnMonitorStacks(player.getInventory().items, player, droneId, monitorItem);
+            wrbdrones$clearUsingOnMonitorStacks(player.getInventory().offhand, player, droneId, monitorItem);
+        }
+    }
 
-        // Взрыв через систему SuperbWarfare
-        this.createCustomExplosion()
-                .radius(3.5f)
-                .damage(8)
-                .explode();
-        this.discard();
+    private void wrbdrones$clearUsingOnMonitorStacks(java.util.List<ItemStack> stacks, ServerPlayer player,
+            String droneId, Item monitorItem) {
+        for (ItemStack stack : stacks) {
+            if (stack.isEmpty() || !stack.is(monitorItem)) {
+                continue;
+            }
+            var tag = NBTTool.getTag(stack);
+            if (tag == null || !droneId.equals(tag.getString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE))) {
+                continue;
+            }
+            tag.putBoolean("Using", false);
+            NBTTool.saveTag(stack, tag);
+        }
     }
 
     @Override
@@ -837,8 +931,8 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     ItemStack mainHand = serverPlayer.getMainHandItem();
                     if (mainHand.is(ModItems.MONITOR.get())) {
                         var tag = NBTTool.getTag(mainHand);
-                        if (tag.getBoolean(com.atsuishio.superbwarfare.item.Monitor.LINKED)
-                                && tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE)
+                        if (tag.getBoolean(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED)
+                                && tag.getString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE)
                                         .equals(droneId)) {
 
                             if (tag.getBoolean("Using")) {
@@ -856,10 +950,8 @@ public abstract class AddonDroneEntity extends DroneEntity {
                         endRemoteControl(serverPlayer);
                     }
 
-                    // Пока управляет — телепортируем игрока к дрону для загрузки чанков
+                    // Пока управляет — телепортируем игрока к дрону для работы FPV камеры
                     if (isUsingMonitor && controlSession != null) {
-                        // Телепортируем игрока к дрону (невидимый, без физики)
-                        // Поднимаем игрока выше, чтобы не задевать хитбокс дрона и не мешать обзору
                         serverPlayer.teleportTo(
                                 serverLevel,
                                 this.getX(),
@@ -868,10 +960,23 @@ public abstract class AddonDroneEntity extends DroneEntity {
                                 serverPlayer.getYRot(),
                                 serverPlayer.getXRot());
                         serverPlayer.fallDistance = 0.0f;
-                        serverPlayer.setNoGravity(true);
-                        serverPlayer.setInvisible(true);
-                        serverPlayer.setSilent(true);
-                        serverPlayer.noPhysics = true;
+
+                        // КЛЮЧЕВОЕ: тащим серверный трекинг/загрузку чанков за дроном.
+                        // teleportTo идёт через connection.teleport (handshake подтверждения), и пока
+                        // ждётся ack, handleMovePlayer пропускает getChunkSource().move (см. ванильный
+                        // updateAwaitingTeleport). При ежетиковом телепорте ack всегда отстаёт, поэтому
+                        // ChunkMap.move для пилота почти не отрабатывает, и сервер грузит вокруг дрона
+                        // лишь синхронно форснутые чанки — на выделенном сервере под дроном видно 1-2
+                        // чанка, остальное пусто. Серверная позиция игрока уже выставлена на дрон
+                        // (absMoveTo внутри connection.teleport), поэтому двигаем трекинг напрямую:
+                        // это и загружает чанки вокруг дрона (player ticket), и ставит их в очередь
+                        // отправки клиенту (ChunkTrackingView).
+                        serverLevel.getChunkSource().move(serverPlayer);
+
+                        // Дополнительно ускоряем сам стриминг чанков пилоту, чтобы быстрый дрон
+                        // (Lancet/FPV) не обгонял загрузку уже отслеживаемых чанков. Снимается в
+                        // endRemoteControl.
+                        ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), true);
 
                         // Синхронизируем экипировку декоя с игроком (каждые 20 тиков)
                         if (this.tickCount % 20 == 0) {
@@ -902,41 +1007,89 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     endRemoteControl(serverPlayer);
                 }
             }
+
+            // Финальная страховка: гарантированно отвязываем все мониторы, привязанные к этому дрону,
+            // независимо от способа удаления (взрыв по ЛКМ, /kill, очистка чанка и т. п.).
+            unlinkAllLinkedMonitors(serverLevel);
         }
         super.remove(reason);
     }
 
-    private void unlinkAllLinkedMonitors(ServerLevel serverLevel) {
+    private void unlinkAllLinkedMonitors(ServerLevel droneLevel) {
         Item monitorItem = ModItems.MONITOR.get();
         if (monitorItem == null) {
             return;
         }
+        MinecraftServer server = droneLevel.getServer();
+        if (server == null) {
+            return;
+        }
         String droneId = this.getStringUUID();
-        for (ServerPlayer player : serverLevel.players()) {
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) {
             unlinkMonitorsFromPlayer(player, droneId, monitorItem);
         }
     }
 
     private void unlinkMonitorsFromPlayer(ServerPlayer player, String droneId, Item monitorItem) {
-        unlinkMonitorCollection(player.getInventory().items, player, droneId, monitorItem);
-        unlinkMonitorCollection(player.getInventory().offhand, player, droneId, monitorItem);
+        boolean changed = false;
+        changed |= unlinkMonitorCollection(player.getInventory().items, player, droneId, monitorItem);
+        changed |= unlinkMonitorCollection(player.getInventory().offhand, player, droneId, monitorItem);
+        changed |= unlinkMonitorCollection(player.getInventory().armor, player, droneId, monitorItem);
+        // Эндер-сундук игрока — на случай, если монитор хранится там.
+        try {
+            net.minecraft.world.SimpleContainer ender = player.getEnderChestInventory();
+            if (ender != null) {
+                java.util.List<ItemStack> enderStacks = new java.util.ArrayList<>(ender.getContainerSize());
+                for (int i = 0; i < ender.getContainerSize(); i++) {
+                    enderStacks.add(ender.getItem(i));
+                }
+                changed |= unlinkMonitorCollection(enderStacks, player, droneId, monitorItem);
+            }
+        } catch (Throwable ignored) {
+            // защитно: если структура эндер-сундука изменится в будущей версии — не падаем.
+        }
+
+        if (changed) {
+            // Принудительная синхронизация инвентаря клиенту, чтобы Linked=false дошёл сразу.
+            try {
+                player.inventoryMenu.broadcastChanges();
+                if (player.containerMenu != null && player.containerMenu != player.inventoryMenu) {
+                    player.containerMenu.broadcastChanges();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
     }
 
-    private void unlinkMonitorCollection(java.util.List<ItemStack> stacks, ServerPlayer player, String droneId,
+    private boolean unlinkMonitorCollection(java.util.List<ItemStack> stacks, ServerPlayer player, String droneId,
             Item monitorItem) {
+        boolean changed = false;
         for (ItemStack stack : stacks) {
             if (stack.isEmpty() || !stack.is(monitorItem)) {
                 continue;
             }
             var tag = NBTTool.getTag(stack);
-            if (tag != null && droneId.equals(tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE))) {
-                // Принудительно сбрасываем состояние подключения
-                tag.putBoolean("Connected", false);
-                tag.putBoolean("Using", false);
-                tag.remove("LinkedDrone");
-                com.atsuishio.superbwarfare.item.Monitor.disLink(tag, player);
+            if (tag == null) {
+                continue;
             }
+            String linkedDrone = tag.getString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE);
+            // Чистим как мониторы, привязанные именно к этому дрону, так и "висячие" (Linked=true, без LinkedDrone).
+            boolean linkedToThis = droneId.equals(linkedDrone);
+            boolean orphanLinked = tag.getBoolean(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED)
+                    && (linkedDrone == null || linkedDrone.isEmpty() || "none".equals(linkedDrone));
+            if (!linkedToThis && !orphanLinked) {
+                continue;
+            }
+            // Явно проставляем все ключи ДО Monitor.disLink — на случай, если NBTTool.saveTag смерджит
+            // и забудет про неустановленные значения.
+            tag.putBoolean("Using", false);
+            tag.putBoolean(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED, false);
+            tag.putString(com.atsuishio.superbwarfare.item.misc.MonitorItem.LINKED_DRONE, "none");
+            com.atsuishio.superbwarfare.item.misc.MonitorItem.disLink(tag, player);
+            NBTTool.saveTag(stack, tag);
+            changed = true;
         }
+        return changed;
     }
 
     /**
@@ -1041,156 +1194,4 @@ public abstract class AddonDroneEntity extends DroneEntity {
         }
     }
 
-    @net.neoforged.api.distmarker.OnlyIn(net.neoforged.api.distmarker.Dist.CLIENT)
-    private static final class ClientAudio {
-
-        private static final Map<AddonDroneEntity, InteriorSound> INTERIOR_SOUNDS = new WeakHashMap<>();
-
-        static {
-            NeoForge.EVENT_BUS.addListener(ClientAudio::onClientTick);
-        }
-
-        private static float adjustExteriorVolume(AddonDroneEntity drone, float baseVolume) {
-            var mc = net.minecraft.client.Minecraft.getInstance();
-            var listener = mc.player;
-            if (listener == null) {
-                return baseVolume;
-            }
-
-            if (isControlling(listener, drone)) {
-                return 0.0f;
-            }
-
-            double distance = Math.sqrt(drone.distanceToSqr(listener));
-            double maxDistance = 48.0;
-            if (distance >= maxDistance) {
-                return 0.0f;
-            }
-
-            double factor = 1.0 - (distance / maxDistance);
-            return (float) (baseVolume * factor);
-        }
-
-        private static void onClientTick(ClientTickEvent.Post event) {
-
-            var mc = net.minecraft.client.Minecraft.getInstance();
-            if (mc.level == null) {
-                INTERIOR_SOUNDS.clear();
-                return;
-            }
-
-            AddonDroneEntity controlled = getControlledDrone(mc);
-            if (controlled != null && controlled.isRemoved()) {
-                controlled = null;
-            }
-
-            if (controlled != null) {
-                InteriorSound sound = INTERIOR_SOUNDS.get(controlled);
-                if (sound == null || sound.isTerminated()) {
-                    sound = new InteriorSound(controlled);
-                    INTERIOR_SOUNDS.put(controlled, sound);
-                    mc.getSoundManager().play(sound);
-                }
-            }
-
-            var iterator = INTERIOR_SOUNDS.entrySet().iterator();
-            while (iterator.hasNext()) {
-                var entry = iterator.next();
-                AddonDroneEntity drone = entry.getKey();
-                InteriorSound sound = entry.getValue();
-
-                boolean keep = controlled != null && drone == controlled && !drone.isRemoved();
-                if (!keep) {
-                    sound.markForStop();
-                    iterator.remove();
-                }
-            }
-        }
-
-        private static AddonDroneEntity getControlledDrone(net.minecraft.client.Minecraft mc) {
-            var player = mc.player;
-            if (player == null) {
-                return null;
-            }
-
-            ItemStack stack = player.getMainHandItem();
-            if (!stack.is(ModItems.MONITOR.get())) {
-                return null;
-            }
-
-            var tag = NBTTool.getTag(stack);
-            if (!tag.getBoolean(com.atsuishio.superbwarfare.item.Monitor.LINKED)) {
-                return null;
-            }
-            if (!tag.getBoolean("Using")) {
-                return null;
-            }
-
-            String linkedId = tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE);
-            DroneEntity drone = EntityFindUtil.findDrone(player.level(), linkedId);
-            return drone instanceof AddonDroneEntity addon ? addon : null;
-        }
-
-        private static boolean isControlling(net.minecraft.client.player.LocalPlayer listener, AddonDroneEntity drone) {
-            if (listener == null)
-                return false;
-
-            ItemStack stack = listener.getMainHandItem();
-            if (!stack.is(ModItems.MONITOR.get()))
-                return false;
-
-            var tag = NBTTool.getTag(stack);
-            if (!tag.getBoolean(com.atsuishio.superbwarfare.item.Monitor.LINKED))
-                return false;
-            if (!tag.getBoolean("Using"))
-                return false;
-
-            return drone.getStringUUID().equals(tag.getString(com.atsuishio.superbwarfare.item.Monitor.LINKED_DRONE));
-        }
-
-        private static final class InteriorSound
-                extends net.minecraft.client.resources.sounds.AbstractTickableSoundInstance {
-            private final AddonDroneEntity drone;
-            private boolean shouldStop;
-            private boolean terminated;
-
-            private InteriorSound(AddonDroneEntity drone) {
-                super(ModSounds.FPV_DRONE_ENGINE_INT.get(), net.minecraft.sounds.SoundSource.PLAYERS,
-                        drone.level().random);
-                this.drone = drone;
-                this.looping = true;
-                this.delay = 0;
-                this.relative = true;
-                this.volume = 0.2f;
-                this.pitch = 1.0f;
-            }
-
-            @Override
-            public void tick() {
-                var listener = net.minecraft.client.Minecraft.getInstance().player;
-                if (this.shouldStop || drone.isRemoved() || !isControlling(listener, drone)) {
-                    this.terminated = true;
-                    this.volume = 0.0f;
-                    return;
-                }
-
-                float power = Math.abs(drone.entityData.get(DroneEntity.POWER));
-                this.volume = net.minecraft.util.Mth.clamp(0.2f + power * 1.2f, 0.2f, 1.0f);
-                this.pitch = net.minecraft.util.Mth.clamp(0.8f + power * 0.6f, 0.8f, 1.4f);
-            }
-
-            @Override
-            public boolean isStopped() {
-                return this.terminated || this.shouldStop || drone.isRemoved();
-            }
-
-            void markForStop() {
-                this.shouldStop = true;
-            }
-
-            boolean isTerminated() {
-                return this.terminated;
-            }
-        }
-    }
 }

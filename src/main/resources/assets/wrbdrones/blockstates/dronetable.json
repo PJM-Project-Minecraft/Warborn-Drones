@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "wrbdrones:block/dronetable"
+    },
+    "facing=east": {
+      "model": "wrbdrones:block/dronetable",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "wrbdrones:block/dronetable",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "wrbdrones:block/dronetable",
+      "y": 270
+    }
+  }
+}

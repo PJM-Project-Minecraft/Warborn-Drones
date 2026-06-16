@@ -23,7 +23,8 @@ import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import ru.liko.wrbdrones.entity.MavicDroneNoDropEntity;
 import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
-import ru.liko.wrbdrones.util.RebUtils;
+import ru.liko.wrbdrones.entity.ZalaLancetEntity;
+import ru.liko.wrbdrones.util.SignalCalculator;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -32,13 +33,25 @@ import java.util.List;
 @EventBusSubscriber(modid = Wrbdrones.MODID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.GAME)
 public class DronePostChainHandler {
 
-    private static final ResourceLocation SHADER_LOC = Wrbdrones.loc("shaders/post/fpv_post.json");
+    private static final ResourceLocation SHADER_FPV = Wrbdrones.loc("shaders/post/fpv_post.json");
+    private static final ResourceLocation SHADER_THERMAL = Wrbdrones.loc("shaders/post/thermal_blk_wht.json");
 
     private static PostChain fpvPostChain;
     private static Field passesFieldCache;
     private static int lastChainWidth = -1;
     private static int lastChainHeight = -1;
     private static boolean inFpvMode = false;
+    public static boolean isThermalEnabled = false;
+
+    public static void toggleThermal() {
+        isThermalEnabled = !isThermalEnabled;
+        if (fpvPostChain != null) {
+            fpvPostChain.close();
+            fpvPostChain = null;
+        }
+        inFpvMode = false;
+        passesFieldCache = null;
+    }
 
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
@@ -141,30 +154,31 @@ public class DronePostChainHandler {
             operatorPos = avatarPos;
         }
 
-        double distance = operatorPos.distanceTo(drone.position());
-        double rebJammingFactor = RebUtils.getRebFactor(drone);
-
         double maxDistance;
-
+        double signalLossDistance;
         if (drone instanceof MavicDroneWithDropEntity || drone instanceof MavicDroneNoDropEntity) {
             maxDistance = ServerConfig.MAVIC_MAX_DISTANCE.get();
+            signalLossDistance = ServerConfig.MAVIC_SIGNAL_LOSS_DISTANCE.get();
+        } else if (drone instanceof ZalaLancetEntity) {
+            maxDistance = ServerConfig.LANCET_MAX_DISTANCE.get();
+            signalLossDistance = -1.0;
         } else {
             maxDistance = ServerConfig.FPV_MAX_DISTANCE.get();
+            signalLossDistance = -1.0;
         }
 
-        double signalPercent = Math.max(0.0, 1.0 - (distance / maxDistance));
-        signalPercent = signalPercent * signalPercent; // Quadratic falloff
-        signalPercent = signalPercent * (1.0 - rebJammingFactor);
-
-        return (float) Math.max(0.0, Math.min(1.0, signalPercent));
+        SignalCalculator.SignalResult sig = SignalCalculator.compute(
+                drone.level(), operatorPos, drone, maxDistance, signalLossDistance);
+        return (float) sig.finalQuality();
     }
 
     private static void ensureFpvChain(Minecraft mc) {
         if (fpvPostChain != null)
             return;
         try {
+            ResourceLocation shaderToLoad = isThermalEnabled ? SHADER_THERMAL : SHADER_FPV;
             fpvPostChain = new PostChain(mc.getTextureManager(), mc.getResourceManager(), mc.getMainRenderTarget(),
-                    SHADER_LOC);
+                    shaderToLoad);
             lastChainWidth = mc.getWindow().getWidth();
             lastChainHeight = mc.getWindow().getHeight();
             fpvPostChain.resize(lastChainWidth, lastChainHeight);
@@ -192,6 +206,7 @@ public class DronePostChainHandler {
 
     private static void disableFpv() {
         inFpvMode = false;
+        isThermalEnabled = false;
         if (fpvPostChain != null) {
             fpvPostChain.close();
             fpvPostChain = null;
@@ -204,6 +219,7 @@ public class DronePostChainHandler {
         if (fpvPostChain == null)
             return;
 
+        Minecraft mc = Minecraft.getInstance();
         try {
             // Reflection hack to access passes if needed (standard PostChain doesn't expose
             // easy uniform access for all passes)
@@ -236,6 +252,10 @@ public class DronePostChainHandler {
                     var timeU = effect.getUniform("Time");
                     if (timeU != null)
                         timeU.set(time);
+
+                    var gameTimeU = effect.getUniform("GameTime");
+                    if (gameTimeU != null && mc.level != null)
+                        gameTimeU.set(mc.level.getTimeOfDay(1.0F));
                 }
             }
         } catch (Exception e) {

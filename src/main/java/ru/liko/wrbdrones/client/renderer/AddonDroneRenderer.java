@@ -12,10 +12,12 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.NotNull;
+import ru.liko.wrbdrones.client.LancetCameraMount;
 import ru.liko.wrbdrones.client.model.AddonDroneModel;
 import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import ru.liko.wrbdrones.entity.FpvDroneEntity;
 import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
+import ru.liko.wrbdrones.entity.ZalaLancetEntity;
 import com.atsuishio.superbwarfare.tools.NBTTool;
 
 import software.bernie.geckolib.renderer.GeoEntityRenderer;
@@ -26,6 +28,12 @@ public class AddonDroneRenderer<T extends AddonDroneEntity> extends GeoEntityRen
     public AddonDroneRenderer(EntityRendererProvider.Context context) {
         super(context, new AddonDroneModel<>());
         this.shadowRadius = 0.25f;
+    }
+
+    @Override
+    public boolean shouldShowName(@NotNull T entity) {
+        // Скрываем стандартную nameplate (белую надпись) над дроном.
+        return false;
     }
 
     @Override
@@ -119,7 +127,11 @@ public class AddonDroneRenderer<T extends AddonDroneEntity> extends GeoEntityRen
 
         // Анимация роторов
         if (!animatable.onGround() && isRotorBone(name)) {
-            bone.setRotY((System.currentTimeMillis() % 36_000_000L) / 12f);
+            if ("propeller".equals(name)) {
+                bone.setRotZ((System.currentTimeMillis() % 36_000_000L) / 12f);
+            } else {
+                bone.setRotY((System.currentTimeMillis() % 36_000_000L) / 12f);
+            }
         }
 
         // Анимация камеры на основе pitch игрока
@@ -355,7 +367,8 @@ public class AddonDroneRenderer<T extends AddonDroneEntity> extends GeoEntityRen
         return "wingFL".equals(name) || "wingFR".equals(name) || "wingBL".equals(name) || "wingBR".equals(name)
                 || "rotor_fl".equals(name) || "rotor_fr".equals(name) || "rotor_bl".equals(name)
                 || "rotor_br".equals(name)
-                || "rotor_left".equals(name) || "rotor_right".equals(name);
+                || "rotor_left".equals(name) || "rotor_right".equals(name)
+                || "propeller".equals(name);
     }
 
     /**
@@ -378,6 +391,9 @@ public class AddonDroneRenderer<T extends AddonDroneEntity> extends GeoEntityRen
             boolean isLinked = NBTTool.getTag(mainHand).getBoolean("Linked");
 
             if (isUsing && isLinked && linkedDrone.equals(animatable.getStringUUID())) {
+                if (animatable instanceof ZalaLancetEntity lancet) {
+                    return LancetCameraMount.getCameraBonePitch(lancet, partialTick, player);
+                }
                 // Возвращаем pitch игрока с интерполяцией
                 return Mth.lerp(partialTick, player.xRotO, player.getXRot());
             }
@@ -392,6 +408,9 @@ public class AddonDroneRenderer<T extends AddonDroneEntity> extends GeoEntityRen
                 boolean isLinked = NBTTool.getTag(stack).getBoolean("Linked");
 
                 if (isUsing && isLinked && linkedDrone.equals(animatable.getStringUUID())) {
+                    if (animatable instanceof ZalaLancetEntity lancet) {
+                        return LancetCameraMount.getCameraBonePitch(lancet, partialTick, player);
+                    }
                     return Mth.lerp(partialTick, player.xRotO, player.getXRot());
                 }
             }

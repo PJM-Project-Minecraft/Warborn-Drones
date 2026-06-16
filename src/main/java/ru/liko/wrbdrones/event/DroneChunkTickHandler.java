@@ -1,18 +1,24 @@
 package ru.liko.wrbdrones.event;
 
 import com.atsuishio.superbwarfare.init.ModItems;
-import com.atsuishio.superbwarfare.item.Monitor;
+import com.atsuishio.superbwarfare.item.misc.MonitorItem;
 import com.atsuishio.superbwarfare.tools.NBTTool;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import ru.liko.wrbdrones.Wrbdrones;
+import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.entity.AddonDroneEntity;
+import ru.liko.wrbdrones.entity.MavicDroneNoDropEntity;
+import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
+import ru.liko.wrbdrones.entity.ZalaLancetEntity;
+import ru.liko.wrbdrones.util.SignalCalculator;
 
 import java.util.UUID;
 
@@ -24,29 +30,77 @@ import java.util.UUID;
 @EventBusSubscriber(modid = Wrbdrones.MODID, bus = EventBusSubscriber.Bus.GAME)
 public class DroneChunkTickHandler {
 
+    private static int signalCheckTickCounter = 0;
+
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
-        // Проверяем каждого игрока
+        signalCheckTickCounter++;
+        boolean checkSignal = ServerConfig.SIGNAL_SERVER_CUTOFF_ENABLED.get()
+                && signalCheckTickCounter >= ServerConfig.SIGNAL_SERVER_CHECK_INTERVAL_TICKS.get();
+        if (checkSignal) signalCheckTickCounter = 0;
+
         for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
-            checkPlayerMonitor(player);
+            AddonDroneEntity drone = checkPlayerMonitor(player);
+            if (checkSignal && drone != null) {
+                checkServerSignalCutoff(player, drone);
+            }
         }
     }
 
-    private static void checkPlayerMonitor(ServerPlayer player) {
+    /**
+     * Авторитарная серверная проверка качества сигнала. Если итоговый сигнал ниже
+     * настраиваемого порога, сервер сам инициирует {@code handleSignalLoss(player, false)}.
+     * Защищает от модифицированных клиентов, не отправляющих {@code DroneSignalLostPacket}.
+     */
+    private static void checkServerSignalCutoff(ServerPlayer player, AddonDroneEntity drone) {
+        Vec3 operatorPos = drone.getOperatorPosition();
+        if (operatorPos == null) operatorPos = player.position();
+
+        double maxDistance;
+        double signalLossDistance;
+        if (drone instanceof MavicDroneWithDropEntity || drone instanceof MavicDroneNoDropEntity) {
+            maxDistance = ServerConfig.MAVIC_MAX_DISTANCE.get();
+            signalLossDistance = ServerConfig.MAVIC_SIGNAL_LOSS_DISTANCE.get();
+        } else if (drone instanceof ZalaLancetEntity) {
+            maxDistance = ServerConfig.LANCET_MAX_DISTANCE.get();
+            signalLossDistance = -1.0;
+        } else {
+            maxDistance = ServerConfig.FPV_MAX_DISTANCE.get();
+            signalLossDistance = -1.0;
+        }
+
+        SignalCalculator.SignalResult sig = SignalCalculator.computeUncached(
+                drone.level(), operatorPos, drone, maxDistance, signalLossDistance);
+        double quality = sig.finalQuality();
+
+        // Приоритет destroy: при качестве <= destroy_threshold (по умолчанию 0.0)
+        // дрон самоуничтожается, как при ЛКМ-камикадзе.
+        if (ServerConfig.SIGNAL_DESTROY_ON_ZERO_ENABLED.get()
+                && quality <= ServerConfig.SIGNAL_DESTROY_THRESHOLD.get()) {
+            drone.handleSignalLoss(player, true);
+            return;
+        }
+
+        if (quality <= ServerConfig.SIGNAL_SERVER_CUTOFF_THRESHOLD.get()) {
+            drone.handleSignalLoss(player, false);
+        }
+    }
+
+    private static AddonDroneEntity checkPlayerMonitor(ServerPlayer player) {
         // Проверяем монитор в главной руке
         ItemStack mainHand = player.getMainHandItem();
         if (!mainHand.is(ModItems.MONITOR.get())) {
-            return;
+            return null;
         }
 
         var tag = NBTTool.getTag(mainHand);
-        if (!tag.getBoolean(Monitor.LINKED)) {
-            return;
+        if (!tag.getBoolean(MonitorItem.LINKED)) {
+            return null;
         }
 
-        String linkedDroneId = tag.getString(Monitor.LINKED_DRONE);
+        String linkedDroneId = tag.getString(MonitorItem.LINKED_DRONE);
         if (linkedDroneId == null || linkedDroneId.isEmpty() || linkedDroneId.equals("none")) {
-            return;
+            return null;
         }
 
         // Принудительно загружаем чанк дрона по сохранённой позиции
@@ -85,11 +139,12 @@ public class DroneChunkTickHandler {
                 if (entity instanceof AddonDroneEntity drone) {
                     // ChunkLoadManager.ensureChunksLoaded(level, drone.getId(),
                     // drone.chunkPosition());
-                    return;
+                    return drone;
                 }
             }
         } catch (IllegalArgumentException ignored) {
         }
+        return null;
     }
 
     @SubscribeEvent
@@ -98,6 +153,8 @@ public class DroneChunkTickHandler {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             // Если игрок управлял дроном, очищаем всё
             ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(serverPlayer.getUUID());
+            // Страховка: снимаем форсированную отправку чанков, если игрок вышел в полёте
+            ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), false);
         }
     }
 }
