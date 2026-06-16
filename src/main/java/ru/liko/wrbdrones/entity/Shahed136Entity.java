@@ -501,16 +501,19 @@ public class Shahed136Entity extends Entity implements GeoEntity {
             unloadChunks(serverLevel);
 
             // Единая точка выхода для ЛЮБОГО удаления дрона (взрыв, /kill, выгрузка):
-            // гарантированно обрываем звук двигателя на всех клиентах, которые отслеживают
-            // сущность (а значит — проигрывают её звук), независимо от расстояния до игрока.
-            // Раньше пакет слался только из explode() и лишь игрокам в радиусе 1100 блоков,
-            // из-за чего после взрыва звук «висел» (экстраполяция в ShahedSoundHandler), если
-            // игрок был дальше либо дрон удалялся иным путём, минуя explode().
-            // ВАЖНО: рассылка до super.remove(reason) — пока трекинг ещё содержит сущность.
+            // обрываем звук двигателя у ВСЕХ игроков в радиусе слышимости, а НЕ только у тех,
+            // кто отслеживает сущность. Shahed слышен до shahed_max_distance (≈1000 бл) — это
+            // много дальше клиентского трекинга (~view distance ≈160 бл): игрок за прогрузкой
+            // ведёт звук экстраполяцией (ShahedSoundHandler), и без широкого уведомления
+            // фантомный мотор «висел» бы после взрыва вдали. sendToPlayersNear по позиции дрона
+            // покрывает и трекеров, и слышащих за прогрузкой. ВАЖНО: до super.remove(reason).
             final ShahedExplodePacket packet = new ShahedExplodePacket(
                     this.getUUID().getMostSignificantBits(),
                     this.getUUID().getLeastSignificantBits());
-            PacketDistributor.sendToPlayersTrackingEntity(this, packet);
+            double soundRadius = ServerConfig.SHAHED_SOUND_MAX_DISTANCE.get();
+            if (soundRadius <= 0.0) soundRadius = 1.0e7; // 0 в конфиге = без лимита
+            PacketDistributor.sendToPlayersNear(serverLevel, null,
+                    this.getX(), this.getY(), this.getZ(), soundRadius, packet);
         }
         super.remove(reason);
     }
