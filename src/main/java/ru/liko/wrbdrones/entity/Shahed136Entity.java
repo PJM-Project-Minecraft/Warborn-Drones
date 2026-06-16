@@ -117,6 +117,10 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     private static final float TERMINAL_HOMING_RANGE = 40.0f;
     private static final float TERMINAL_MANEUVER_SPEED_FACTOR = 1.45f;
     private static final float ROLL_RATE_BASE = 2.5f;
+    // Плавный взлёт: старт на пониженной скорости и пологий выход на высоту.
+    private static final float LAUNCH_SPEED_FACTOR = 0.6f;   // стартовая airspeed = setSpeed·0.6 (выше сваливания)
+    private static final int LAUNCH_CLIMB_TICKS = 60;        // ~3 с плавного набора
+    private static final float LAUNCH_INITIAL_MAX_CLIMB = 12.0f; // начальный предел угла кабрирования, град.
     // Взрыватель в терминале.
     private static final float PROXIMITY_ARM_RADIUS = 12.0f;
     private static final float PROXIMITY_CONTACT_RADIUS = 2.5f;
@@ -453,8 +457,9 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
         Vec3 forward = Vec3.directionFromRotation(0, this.getYRot());
         this.setDeltaMovement(forward.scale(LAUNCH_INITIAL_SPEED));
-        // Энергомодель: стартуем сразу на заданной крейсерской скорости, чтобы не сваливаться на старте.
-        setAirspeed(getSetSpeed());
+        // Энергомодель: стартуем на пониженной скорости (чуть выше сваливания) и плавно
+        // разгоняемся газ-серво до крейсерской — без рывка «мгновенно на полной».
+        setAirspeed(getSetSpeed() * LAUNCH_SPEED_FACTOR);
         this.throttle = 0.5f;
     }
 
@@ -619,6 +624,14 @@ public class Shahed136Entity extends Entity implements GeoEntity {
             desiredPitch = Mth.clamp(desiredPitch, -maxPitch, maxPitch);
         } else {
             desiredPitch = Mth.clamp(desiredPitch, -FULL_PITCH_RANGE, FULL_PITCH_RANGE);
+        }
+
+        // Плавный выход на высоту после старта: первые секунды ограничиваем угол
+        // кабрирования (нос вверх — отрицательный тангаж), наращивая предел до полного.
+        if (!terminal && launchTicks < LAUNCH_CLIMB_TICKS) {
+            float t = launchTicks / (float) LAUNCH_CLIMB_TICKS;
+            float maxClimb = Mth.lerp(t, LAUNCH_INITIAL_MAX_CLIMB, maxPitch);
+            desiredPitch = Math.max(desiredPitch, -maxClimb);
         }
 
         float turnRate;
