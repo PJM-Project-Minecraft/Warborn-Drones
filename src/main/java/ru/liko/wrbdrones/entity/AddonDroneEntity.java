@@ -651,8 +651,11 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
     /**
      * Начинает удаленное управление дроном.
-     * Создаёт декой (копию) игрока на его исходной позиции.
-     * Телепортирует игрока к дрону для загрузки чанков.
+     * <p>
+     * Для FPV-дронов: игрок остаётся на месте, дрон сам центрирует прогрузку чанков
+     * (self-chunk режим). Декой, спектатор и телепорт не применяются.
+     * <p>
+     * Для остальных дронов (Mavic, Lancet): старый путь — декой + спектатор + телепорт.
      */
     public boolean beginRemoteControl(final ServerPlayer player) {
         String controllerId = this.entityData.get(DroneEntity.CONTROLLER);
@@ -660,6 +663,11 @@ public abstract class AddonDroneEntity extends DroneEntity {
                 && !controllerId.equals(player.getStringUUID())) {
             return false; // Дрон уже связан с другим игроком
         }
+
+        // Запоминаем ДО создания сессии: является ли этот вызов первым вхождением
+        // в управление. Нужно для предотвращения утечки PilotChunkTicket при
+        // повторном вызове beginRemoteControl для того же игрока.
+        boolean freshSession = (controlSession == null);
 
         if (controlSession == null) {
             controlSession = new ControlSession(
@@ -674,26 +682,39 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
         if (!player.level().isClientSide() && this.level() instanceof ServerLevel droneLevel) {
 
-            // Создаем декой (фейкового игрока) на месте игрока ПЕРЕД тем, как он
-            // телепортируется к дрону
-            ru.liko.wrbdrones.util.PlayerDecoyManager.createDecoy(player, this);
+            boolean selfChunkMode = this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity;
 
-            // Переводим в спектаторский режим — гарантированно невидим для всех игроков
-            player.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
+            if (selfChunkMode) {
+                // НОВЫЙ путь: игрок остаётся на месте, дрон сам центрирует прогрузку чанков.
+                // hold/setAnchor — только при свежей сессии, иначе держанный чанк утечёт.
+                if (freshSession) {
+                    ru.liko.wrbdrones.util.PilotChunkTicket.hold(player);           // держим домашний чанк
+                    ru.liko.wrbdrones.util.PilotViewAnchors.setAnchor(player.getUUID(), this); // центр обзора -> дрон
+                }
+            } else {
+                // СТАРЫЙ путь (Mavic/Lancet до распространения фичи).
 
-            // Телепортируем игрока к дрону для работы FPV камеры и загрузки чанков.
-            // Принудительно выравниваем взгляд оператора по курсу дрона (yaw) и горизонту (pitch=0),
-            // чтобы камера-карданчик стартовала вперёд, а не повторяла случайное положение головы
-            // игрока в момент входа в управление. Исходные углы уже сохранены в controlSession
-            // и будут восстановлены при выходе.
-            player.teleportTo(
-                    droneLevel,
-                    this.getX(),
-                    this.getY() + this.getBbHeight() + 4.0,
-                    this.getZ(),
-                    this.getYRot(),
-                    0.0f);
-            player.setYHeadRot(this.getYRot());
+                // Создаем декой (фейкового игрока) на месте игрока ПЕРЕД тем, как он
+                // телепортируется к дрону
+                ru.liko.wrbdrones.util.PlayerDecoyManager.createDecoy(player, this);
+
+                // Переводим в спектаторский режим — гарантированно невидим для всех игроков
+                player.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
+
+                // Телепортируем игрока к дрону для работы FPV камеры и загрузки чанков.
+                // Принудительно выравниваем взгляд оператора по курсу дрона (yaw) и горизонту (pitch=0),
+                // чтобы камера-карданчик стартовала вперёд, а не повторяла случайное положение головы
+                // игрока в момент входа в управление. Исходные углы уже сохранены в controlSession
+                // и будут восстановлены при выходе.
+                player.teleportTo(
+                        droneLevel,
+                        this.getX(),
+                        this.getY() + this.getBbHeight() + 4.0,
+                        this.getZ(),
+                        this.getYRot(),
+                        0.0f);
+                player.setYHeadRot(this.getYRot());
+            }
         }
 
         return true;
