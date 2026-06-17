@@ -54,10 +54,12 @@ public class DecoyTargetHandler {
 
         PlayerDecoyEntity decoy = PlayerDecoyManager.getDecoy(player.getUUID());
         if (decoy != null && decoy.isAlive()) {
+            // Старый режим (Mavic/Lancet): реальный игрок телепортирован к дрону и
+            // невидим — перенаправляем моба на декой.
             event.setNewAboutToBeSetTarget(decoy);
-        } else {
-            event.setNewAboutToBeSetTarget(null);
         }
+        // Декоя нет (FPV self-chunk): пилот остаётся на месте и уязвим — НЕ отменяем
+        // таргет, пусть мобы атакуют реальное тело пилота напрямую.
     }
 
     private static void addDecoyTargetGoal(Mob mob) {
