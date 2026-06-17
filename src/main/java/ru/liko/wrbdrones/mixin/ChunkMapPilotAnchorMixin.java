@@ -124,10 +124,10 @@ public class ChunkMapPilotAnchorMixin {
             method = "updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;)V",
             at = @At(
                     value = "INVOKE",
-                    target = "Lnet/minecraft/world/entity/Entity;chunkPosition()Lnet/minecraft/world/level/ChunkPos;"
+                    target = "Lnet/minecraft/server/level/ServerPlayer;chunkPosition()Lnet/minecraft/world/level/ChunkPos;"
             )
     )
-    private ChunkPos wrbdrones$anchorChunkPosInUpdateChunkTracking(final Entity player) {
+    private ChunkPos wrbdrones$anchorChunkPosInUpdateChunkTracking(final ServerPlayer player) {
         Entity drone = wrbdrones$anchorDroneFor(player);
         if (drone != null) {
             return drone.chunkPosition();
