@@ -20,7 +20,6 @@ import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import ru.liko.wrbdrones.client.LancetCameraMount;
 import ru.liko.wrbdrones.client.DroneInputHandler;
-import ru.liko.wrbdrones.entity.FpvDroneEntity;
 import ru.liko.wrbdrones.entity.ZalaLancetEntity;
 
 /**
@@ -60,20 +59,11 @@ public abstract class CameraMixinWRB {
         DroneEntity drone = EntityFindUtil.findDrone(player.level(), tag.getString("LinkedDrone"));
         if (drone == null) return;
 
-        // Ветка FPV: self-chunk режим — игрок остаётся дома, камера ставится в нос дрона.
-        // Используем те же методы, что SBW CameraMixin применяет для стандартных дронов:
-        // getYaw(float) и getPitch(float) — интерполированные углы тела дрона из VehicleEntity.
-        // getEyePosition(float) — стандартный Entity-метод с интерполяцией позиции и eye-высотой.
-        if (drone instanceof FpvDroneEntity fpv) {
-            Vec3 eye = fpv.getEyePosition(partialTicks);
-            float yaw   = fpv.getYaw(partialTicks);
-            float pitch = fpv.getPitch(partialTicks);
-            setRotation(yaw, pitch);
-            setPosition(eye.x, eye.y, eye.z);
-            info.cancel();
-            return;
-        }
-
+        // FPV (self-chunk режим) НЕ перехватываем: дрон теперь загружен на клиенте
+        // (трекинг сущности перенесён на дрон), поэтому родная камера SBW CameraMixin
+        // сама ставит вид в нос квадрокоптера через трансформ-матрицу корпуса
+        // (yaw + bodyPitch + roll + локальный офсет) — именно тот «качающийся» вид,
+        // что нужен. Перехватываем только Lancet, которому нужен иной маунт.
         if (!(drone instanceof ZalaLancetEntity lancetDrone)) return;
 
         // Наш дрон — обрабатываем камеру самостоятельно
