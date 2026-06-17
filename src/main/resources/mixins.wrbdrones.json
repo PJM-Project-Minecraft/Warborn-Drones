@@ -8,7 +8,8 @@
     "VehicleDamageParticleMixin",
     "DroneDropMixin",
     "PlayerChunkSenderMixin",
-    "ChunkMapPilotAnchorMixin"
+    "ChunkMapPilotAnchorMixin",
+    "ChunkMapTrackedEntityMixin"
   ],
   "client": [
     "DroneHudOverlayMixin",
