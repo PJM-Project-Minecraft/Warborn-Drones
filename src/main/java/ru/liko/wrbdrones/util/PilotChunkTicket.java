@@ -32,9 +32,13 @@ public final class PilotChunkTicket {
 
     public static void release(final ServerPlayer player) {
         if (player == null) return;
-        UUID id = player.getUUID();
-        ServerLevel level = LEVELS.remove(id);
-        ChunkPos pos = CHUNKS.remove(id);
+        release(player.getUUID());
+    }
+
+    public static void release(final UUID playerId) {
+        if (playerId == null) return;
+        ServerLevel level = LEVELS.remove(playerId);
+        ChunkPos pos = CHUNKS.remove(playerId);
         if (level != null && pos != null) {
             level.setChunkForced(pos.x, pos.z, false);
         }

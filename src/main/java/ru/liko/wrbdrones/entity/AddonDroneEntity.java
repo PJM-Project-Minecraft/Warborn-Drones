@@ -805,6 +805,10 @@ public abstract class AddonDroneEntity extends DroneEntity {
         } else {
             // Игрок не найден (вышел?) — принудительно удаляем декой
             ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(wrbdrones$controllerUuid);
+            // Снимаем FPV-ресурсы: якорь вида и форс-загрузку домашнего чанка.
+            // Для не-FPV дронов эти ресурсы никогда не ставились — вызовы являются no-op.
+            ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(wrbdrones$controllerUuid);
+            ru.liko.wrbdrones.util.PilotChunkTicket.release(wrbdrones$controllerUuid);
         }
     }
 

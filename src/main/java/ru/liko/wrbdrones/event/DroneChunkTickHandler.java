@@ -153,6 +153,10 @@ public class DroneChunkTickHandler {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
             // Если игрок управлял дроном, очищаем всё
             ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(serverPlayer.getUUID());
+            // Снимаем FPV-ресурсы: якорь вида и форс-загрузку домашнего чанка.
+            // Для не-FPV дронов эти ресурсы никогда не ставились — вызовы являются no-op.
+            ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(serverPlayer.getUUID());
+            ru.liko.wrbdrones.util.PilotChunkTicket.release(serverPlayer);
             // Страховка: снимаем форсированную отправку чанков, если игрок вышел в полёте
             ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), false);
         }

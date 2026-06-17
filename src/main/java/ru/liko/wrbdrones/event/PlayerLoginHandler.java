@@ -10,6 +10,8 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import ru.liko.wrbdrones.Wrbdrones;
 import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import ru.liko.wrbdrones.util.PlayerDecoyManager;
+import ru.liko.wrbdrones.util.PilotViewAnchors;
+import ru.liko.wrbdrones.util.PilotChunkTicket;
 
 /**
  * Обработчик входа игрока в мир.
@@ -48,6 +50,10 @@ public class PlayerLoginHandler {
         
         // Удаляем декой при выходе игрока
         PlayerDecoyManager.removeDecoy(player.getUUID());
+        // Снимаем FPV-ресурсы: якорь вида и форс-загрузку домашнего чанка.
+        // Для не-FPV дронов эти ресурсы никогда не ставились — вызовы являются no-op.
+        PilotViewAnchors.clearAnchor(player.getUUID());
+        PilotChunkTicket.release(player);
     }
 
     /**
