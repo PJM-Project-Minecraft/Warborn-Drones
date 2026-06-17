@@ -630,7 +630,7 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         if (entity == null || entity == this || entity.isSpectator() || !entity.isAlive()) {
             return false;
         }
-        if (entity instanceof ItemEntity || entity instanceof Projectile || entity instanceof PlayerDecoyEntity) {
+        if (entity instanceof ItemEntity || entity instanceof Projectile) {
             return false;
         }
         Entity controller = getController();

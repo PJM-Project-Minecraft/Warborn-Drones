@@ -691,40 +691,12 @@ public abstract class AddonDroneEntity extends DroneEntity {
         }
         wrbdrones$controllerUuid = player.getUUID();
 
-        if (!player.level().isClientSide() && this.level() instanceof ServerLevel droneLevel) {
-
-            boolean selfChunkMode = wrbdrones$usesSelfChunkLoading();
-
-            if (selfChunkMode) {
-                // НОВЫЙ путь: игрок остаётся на месте, дрон сам центрирует прогрузку чанков.
-                // hold/setAnchor — только при свежей сессии, иначе держанный чанк утечёт.
-                if (freshSession) {
-                    ru.liko.wrbdrones.util.PilotChunkTicket.hold(player);           // держим домашний чанк
-                    ru.liko.wrbdrones.util.PilotViewAnchors.setAnchor(player.getUUID(), this); // центр обзора -> дрон
-                }
-            } else {
-                // СТАРЫЙ путь (Mavic/Lancet до распространения фичи).
-
-                // Создаем декой (фейкового игрока) на месте игрока ПЕРЕД тем, как он
-                // телепортируется к дрону
-                ru.liko.wrbdrones.util.PlayerDecoyManager.createDecoy(player, this);
-
-                // Переводим в спектаторский режим — гарантированно невидим для всех игроков
-                player.gameMode.changeGameModeForPlayer(GameType.SPECTATOR);
-
-                // Телепортируем игрока к дрону для работы FPV камеры и загрузки чанков.
-                // Принудительно выравниваем взгляд оператора по курсу дрона (yaw) и горизонту (pitch=0),
-                // чтобы камера-карданчик стартовала вперёд, а не повторяла случайное положение головы
-                // игрока в момент входа в управление. Исходные углы уже сохранены в controlSession
-                // и будут восстановлены при выходе.
-                player.teleportTo(
-                        droneLevel,
-                        this.getX(),
-                        this.getY() + this.getBbHeight() + 4.0,
-                        this.getZ(),
-                        this.getYRot(),
-                        0.0f);
-                player.setYHeadRot(this.getYRot());
+        if (!player.level().isClientSide() && this.level() instanceof ServerLevel) {
+            // Self-chunk: игрок остаётся на месте, дрон сам центрирует прогрузку чанков.
+            // hold/setAnchor — только при свежей сессии, иначе держанный чанк утечёт.
+            if (freshSession) {
+                ru.liko.wrbdrones.util.PilotChunkTicket.hold(player);           // держим домашний чанк
+                ru.liko.wrbdrones.util.PilotViewAnchors.setAnchor(player.getUUID(), this); // центр обзора -> дрон
             }
         }
 
@@ -734,13 +706,10 @@ public abstract class AddonDroneEntity extends DroneEntity {
     /**
      * Завершает удаленное управление дроном.
      * <p>
-     * FPV (режим self-chunk): игрок не перемещался — снимает якорь вида
-     * ({@link ru.liko.wrbdrones.util.PilotViewAnchors}) и тикет удержания
-     * домашнего чанка ({@link ru.liko.wrbdrones.util.PilotChunkTicket}),
-     * затем восстанавливает углы взгляда без какого-либо телепорта.
-     * <p>
-     * Прочие дроны (Mavic, Lancet и т.д.): удаляет декой и телепортирует
-     * игрока обратно на исходную позицию с восстановлением игрового режима.
+     * Self-chunk режим (FPV, Mavic, Lancet): игрок не перемещался — снимает якорь вида
+     * ({@link ru.liko.wrbdrones.util.PilotViewAnchors}) и тикет удержания домашнего чанка
+     * ({@link ru.liko.wrbdrones.util.PilotChunkTicket}), затем восстанавливает углы
+     * взгляда без какого-либо телепорта.
      */
     public void endRemoteControl(final ServerPlayer player) {
         if (controlSession == null) {
@@ -754,36 +723,16 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
         wrbdrones$endingControl = true;
         try {
-
-            boolean selfChunkMode = wrbdrones$usesSelfChunkLoading();
-
-            if (selfChunkMode) {
-                // Игрок не перемещался — только снимаем режим self-chunk.
-                ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(player.getUUID());
-                ru.liko.wrbdrones.util.PilotChunkTicket.release(player);
-                // Вернуть углы взгляда оператора (тело не двигалось, но камера была на дроне).
-                var session = controlSession;
-                if (session != null) {
-                    player.setYRot(session.originYaw);
-                    player.setXRot(session.originPitch);
-                    player.setYHeadRot(session.originYaw);
-                }
-            } else {
-                // СТАРЫЙ путь: телепорт-назад + восстановление режима.
-                var session = controlSession;
-                if (session != null && player.getServer() != null) {
-                    ServerLevel target = player.getServer().getLevel(session.dimension);
-                    if (target != null) {
-                        player.teleportTo(target, session.originPos.x, session.originPos.y, session.originPos.z,
-                                session.originYaw, session.originPitch);
-                        player.fallDistance = 0.0f;
-                    }
-                    player.setInvisible(false);
-                    player.gameMode.changeGameModeForPlayer(session.gameMode);
-                }
-                ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(player.getUUID());
+            // Игрок не перемещался — снимаем режим self-chunk.
+            ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(player.getUUID());
+            ru.liko.wrbdrones.util.PilotChunkTicket.release(player);
+            // Вернуть углы взгляда оператора (тело не двигалось, но камера была на дроне).
+            var session = controlSession;
+            if (session != null) {
+                player.setYRot(session.originYaw);
+                player.setXRot(session.originPitch);
+                player.setYHeadRot(session.originYaw);
             }
-
         } finally {
             wrbdrones$endingControl = false;
         }
@@ -814,10 +763,8 @@ public abstract class AddonDroneEntity extends DroneEntity {
         if (sp != null) {
             endRemoteControl(sp);
         } else {
-            // Игрок не найден (вышел?) — принудительно удаляем декой
-            ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(wrbdrones$controllerUuid);
-            // Снимаем FPV-ресурсы: якорь вида и форс-загрузку домашнего чанка.
-            // Для не-FPV дронов эти ресурсы никогда не ставились — вызовы являются no-op.
+            // Игрок не найден (вышел?) — принудительно снимаем self-chunk ресурсы:
+            // якорь вида и форс-загрузку домашнего чанка.
             ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(wrbdrones$controllerUuid);
             ru.liko.wrbdrones.util.PilotChunkTicket.release(wrbdrones$controllerUuid);
         }
@@ -897,8 +844,9 @@ public abstract class AddonDroneEntity extends DroneEntity {
                 if (operator != null) {
                     endRemoteControl(operator);
                 } else {
-                    // Крайний случай: игрок не найден — принудительно удаляем декой
-                    ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(wrbdrones$controllerUuid);
+                    // Крайний случай: игрок не найден — снимаем self-chunk ресурсы вручную.
+                    ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(wrbdrones$controllerUuid);
+                    ru.liko.wrbdrones.util.PilotChunkTicket.release(wrbdrones$controllerUuid);
                     controlSession = null;
                     wrbdrones$controllerUuid = null;
                 }
@@ -1003,42 +951,6 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     // Если игрок не использует монитор - завершаем управление
                     if (!isUsingMonitor && controlSession != null) {
                         endRemoteControl(serverPlayer);
-                    }
-
-                    // Пока управляет — телепортируем игрока к дрону для работы FPV камеры
-                    // (только для не-FPV дронов; FPV использует self-chunk режим — см. ниже)
-                    if (isUsingMonitor && controlSession != null
-                            && !wrbdrones$usesSelfChunkLoading()) {
-                        serverPlayer.teleportTo(
-                                serverLevel,
-                                this.getX(),
-                                this.getY() + this.getBbHeight() + 4.0,
-                                this.getZ(),
-                                serverPlayer.getYRot(),
-                                serverPlayer.getXRot());
-                        serverPlayer.fallDistance = 0.0f;
-
-                        // КЛЮЧЕВОЕ: тащим серверный трекинг/загрузку чанков за дроном.
-                        // teleportTo идёт через connection.teleport (handshake подтверждения), и пока
-                        // ждётся ack, handleMovePlayer пропускает getChunkSource().move (см. ванильный
-                        // updateAwaitingTeleport). При ежетиковом телепорте ack всегда отстаёт, поэтому
-                        // ChunkMap.move для пилота почти не отрабатывает, и сервер грузит вокруг дрона
-                        // лишь синхронно форснутые чанки — на выделенном сервере под дроном видно 1-2
-                        // чанка, остальное пусто. Серверная позиция игрока уже выставлена на дрон
-                        // (absMoveTo внутри connection.teleport), поэтому двигаем трекинг напрямую:
-                        // это и загружает чанки вокруг дрона (player ticket), и ставит их в очередь
-                        // отправки клиенту (ChunkTrackingView).
-                        serverLevel.getChunkSource().move(serverPlayer);
-
-                        // Дополнительно ускоряем сам стриминг чанков пилоту, чтобы быстрый дрон
-                        // (Lancet/FPV) не обгонял загрузку уже отслеживаемых чанков. Снимается в
-                        // endRemoteControl.
-                        ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), true);
-
-                        // Синхронизируем экипировку декоя с игроком (каждые 20 тиков)
-                        if (this.tickCount % 20 == 0) {
-                            ru.liko.wrbdrones.util.PlayerDecoyManager.syncDecoyEquipment(serverPlayer);
-                        }
                     }
 
                     // Self-chunk режим: тело пилота заморожено на месте (но уязвимо).

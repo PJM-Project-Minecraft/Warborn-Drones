@@ -10,7 +10,6 @@ import ru.liko.wrbdrones.entity.FpvDroneEntity;
 import ru.liko.wrbdrones.entity.LancetLaunchPlatformEntity;
 import ru.liko.wrbdrones.entity.MavicDroneNoDropEntity;
 import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
-import ru.liko.wrbdrones.entity.PlayerDecoyEntity;
 import ru.liko.wrbdrones.entity.RebEntity;
 import ru.liko.wrbdrones.entity.RebMiniEntity;
 import ru.liko.wrbdrones.entity.Shahed136Entity;
@@ -97,13 +96,4 @@ public final class ModEntityTypes {
                                         .clientTrackingRange(128)
                                         .updateInterval(1)
                                         .build(Wrbdrones.loc("shahed136").toString()));
-
-        public static final DeferredHolder<EntityType<?>, EntityType<PlayerDecoyEntity>> PLAYER_DECOY = REGISTRY
-                        .register("player_decoy",
-                                        () -> EntityType.Builder
-                                                        .<PlayerDecoyEntity>of(PlayerDecoyEntity::new, MobCategory.MISC)
-                                                        .sized(0.6F, 1.8F)
-                                                        .clientTrackingRange(16)
-                                                        .updateInterval(2)
-                                                        .build(Wrbdrones.loc("player_decoy").toString()));
 }

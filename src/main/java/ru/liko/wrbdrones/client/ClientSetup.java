@@ -13,7 +13,6 @@ import ru.liko.wrbdrones.client.overlay.MavicHudOverlay;
 import ru.liko.wrbdrones.client.renderer.DronetableBlockEntityRenderer;
 import ru.liko.wrbdrones.client.renderer.AddonDroneRenderer;
 import ru.liko.wrbdrones.client.renderer.LancetLaunchPlatformRenderer;
-import ru.liko.wrbdrones.client.renderer.PlayerDecoyRenderer;
 import ru.liko.wrbdrones.client.renderer.RebMiniRenderer;
 import ru.liko.wrbdrones.client.renderer.RebRenderer;
 import ru.liko.wrbdrones.client.renderer.Shahed136Renderer;
@@ -41,7 +40,6 @@ public final class ClientSetup {
         event.registerEntityRenderer(ModEntityTypes.REB.get(), RebRenderer::new);
         event.registerEntityRenderer(ModEntityTypes.REB_MINI.get(), RebMiniRenderer::new);
         event.registerEntityRenderer(ModEntityTypes.SHAHED136.get(), Shahed136Renderer::new);
-        event.registerEntityRenderer(ModEntityTypes.PLAYER_DECOY.get(), PlayerDecoyRenderer::new);
     }
 
     @SubscribeEvent
