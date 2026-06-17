@@ -650,12 +650,23 @@ public abstract class AddonDroneEntity extends DroneEntity {
     }
 
     /**
+     * Использует ли дрон self-chunk режим: игрок остаётся на месте, дрон сам центрирует
+     * прогрузку чанков и трекинг сущностей вокруг себя (без телепорта/декоя/спектатора).
+     * <p>
+     * По умолчанию {@code true} для всех управляемых дронов (FPV, Mavic, Lancet).
+     * Дроны вне этой модели (например, Shahed-136) переопределяют на {@code false}.
+     */
+    protected boolean wrbdrones$usesSelfChunkLoading() {
+        return true;
+    }
+
+    /**
      * Начинает удаленное управление дроном.
      * <p>
-     * Для FPV-дронов: игрок остаётся на месте, дрон сам центрирует прогрузку чанков
-     * (self-chunk режим). Декой, спектатор и телепорт не применяются.
+     * Self-chunk режим (FPV, Mavic, Lancet): игрок остаётся на месте, дрон сам центрирует
+     * прогрузку чанков. Декой, спектатор и телепорт не применяются.
      * <p>
-     * Для остальных дронов (Mavic, Lancet): старый путь — декой + спектатор + телепорт.
+     * Прочие дроны (self-chunk выключен): старый путь — декой + спектатор + телепорт.
      */
     public boolean beginRemoteControl(final ServerPlayer player) {
         String controllerId = this.entityData.get(DroneEntity.CONTROLLER);
@@ -682,7 +693,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
         if (!player.level().isClientSide() && this.level() instanceof ServerLevel droneLevel) {
 
-            boolean selfChunkMode = this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity;
+            boolean selfChunkMode = wrbdrones$usesSelfChunkLoading();
 
             if (selfChunkMode) {
                 // НОВЫЙ путь: игрок остаётся на месте, дрон сам центрирует прогрузку чанков.
@@ -744,7 +755,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
         wrbdrones$endingControl = true;
         try {
 
-            boolean selfChunkMode = this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity;
+            boolean selfChunkMode = wrbdrones$usesSelfChunkLoading();
 
             if (selfChunkMode) {
                 // Игрок не перемещался — только снимаем режим self-chunk.
@@ -997,7 +1008,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     // Пока управляет — телепортируем игрока к дрону для работы FPV камеры
                     // (только для не-FPV дронов; FPV использует self-chunk режим — см. ниже)
                     if (isUsingMonitor && controlSession != null
-                            && !(this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity)) {
+                            && !wrbdrones$usesSelfChunkLoading()) {
                         serverPlayer.teleportTo(
                                 serverLevel,
                                 this.getX(),
@@ -1031,7 +1042,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     }
 
                     // Self-chunk режим: тело пилота заморожено на месте (но уязвимо).
-                    if (this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity
+                    if (wrbdrones$usesSelfChunkLoading()
                             && controlSession != null
                             && wrbdrones$controllerUuid != null) {
                         // Пилот стоит неподвижно — handleMovePlayer никогда не вызывает
