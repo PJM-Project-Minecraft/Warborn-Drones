@@ -972,7 +972,9 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     }
 
                     // Пока управляет — телепортируем игрока к дрону для работы FPV камеры
-                    if (isUsingMonitor && controlSession != null) {
+                    // (только для не-FPV дронов; FPV использует self-chunk режим — см. ниже)
+                    if (isUsingMonitor && controlSession != null
+                            && !(this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity)) {
                         serverPlayer.teleportTo(
                                 serverLevel,
                                 this.getX(),
@@ -1002,6 +1004,19 @@ public abstract class AddonDroneEntity extends DroneEntity {
                         // Синхронизируем экипировку декоя с игроком (каждые 20 тиков)
                         if (this.tickCount % 20 == 0) {
                             ru.liko.wrbdrones.util.PlayerDecoyManager.syncDecoyEquipment(serverPlayer);
+                        }
+                    }
+
+                    // Self-chunk режим: тело пилота заморожено на месте (но уязвимо).
+                    if (this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity
+                            && controlSession != null
+                            && wrbdrones$controllerUuid != null) {
+                        net.minecraft.world.phys.Vec3 anchor = controlSession.originPos;
+                        if (anchor != null && (serverPlayer.position().distanceToSqr(anchor) > 1.0E-4
+                                || !serverPlayer.getDeltaMovement().equals(net.minecraft.world.phys.Vec3.ZERO))) {
+                            serverPlayer.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+                            serverPlayer.teleportTo(anchor.x, anchor.y, anchor.z);
+                            serverPlayer.fallDistance = 0.0f;
                         }
                     }
 
