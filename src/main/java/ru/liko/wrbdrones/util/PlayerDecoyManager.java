@@ -96,6 +96,21 @@ public final class PlayerDecoyManager {
     public static boolean hasDecoy(UUID playerUUID) {
         return activeDecoys.containsKey(playerUUID);
     }
+
+    /**
+     * Возвращает UUID сущности-декоя, зарегистрированного как активный для игрока,
+     * либо {@code null}, если активного декоя нет.
+     *
+     * <p>В отличие от {@link #getDecoy(UUID)} не выполняет поиск сущности в мире —
+     * нужен для самопроверки декоя в {@code tick()} без зависимости от того,
+     * загружен ли чанк. Карта {@code activeDecoys} — единственный источник правды
+     * о том, что у игрока сейчас должен существовать декой.
+     */
+    @Nullable
+    public static UUID getRegisteredDecoyId(UUID playerUUID) {
+        DecoyData data = activeDecoys.get(playerUUID);
+        return data == null ? null : data.decoyEntityId;
+    }
     
     /**
      * Получает декой игрока.

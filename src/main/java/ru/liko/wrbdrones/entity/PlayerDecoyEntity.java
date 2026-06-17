@@ -182,6 +182,18 @@ public class PlayerDecoyEntity extends LivingEntity {
                 return;
             }
 
+            // Авторитет жизненного цикла — PlayerDecoyManager. Если этот декой не
+            // зарегистрирован как активный для владельца (осиротел после неудачного
+            // removeDecoy при выгруженном чанке, либо восстановлен из старого сейва),
+            // удаляем себя. Это финальная страховка от «фейка игрока», который
+            // переживает выход из управления.
+            java.util.UUID registered = ru.liko.wrbdrones.util.PlayerDecoyManager
+                    .getRegisteredDecoyId(owner.getUUID());
+            if (registered == null || !registered.equals(this.getUUID())) {
+                this.discard();
+                return;
+            }
+
             if (syncCooldown > 0) {
                 syncCooldown--;
             }
@@ -513,6 +525,20 @@ public class PlayerDecoyEntity extends LivingEntity {
 
     @Override
     public void push(Entity entity) {
+    }
+
+    /**
+     * Декой — исключительно временный артефакт сессии управления дроном.
+     * Он НИКОГДА не должен сохраняться в сейв мира: иначе осиротевшая обманка
+     * переживёт выгрузку чанка или перезапуск сервера и останется «фейковым
+     * игроком». Весь жизненный цикл управляется только через
+     * {@link ru.liko.wrbdrones.util.PlayerDecoyManager} и самоочистку в
+     * {@link #tick()}. {@code readAdditionalSaveData} сохраняется лишь для
+     * корректной самоочистки декоев, оставшихся в сейвах от прежних версий.
+     */
+    @Override
+    public boolean shouldBeSaved() {
+        return false;
     }
 
     @Override
