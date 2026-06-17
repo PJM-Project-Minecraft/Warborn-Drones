@@ -722,7 +722,14 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
     /**
      * Завершает удаленное управление дроном.
-     * Удаляет декой и телепортирует игрока обратно на исходную позицию.
+     * <p>
+     * FPV (режим self-chunk): игрок не перемещался — снимает якорь вида
+     * ({@link ru.liko.wrbdrones.util.PilotViewAnchors}) и тикет удержания
+     * домашнего чанка ({@link ru.liko.wrbdrones.util.PilotChunkTicket}),
+     * затем восстанавливает углы взгляда без какого-либо телепорта.
+     * <p>
+     * Прочие дроны (Mavic, Lancet и т.д.): удаляет декой и телепортирует
+     * игрока обратно на исходную позицию с восстановлением игрового режима.
      */
     public void endRemoteControl(final ServerPlayer player) {
         if (controlSession == null) {
@@ -737,22 +744,34 @@ public abstract class AddonDroneEntity extends DroneEntity {
         wrbdrones$endingControl = true;
         try {
 
-            // Телепортируем назад на исходную позицию
-            var session = controlSession;
-            if (session != null && player.getServer() != null) {
-                ServerLevel target = player.getServer().getLevel(session.dimension);
-                if (target != null) {
-                    player.teleportTo(target, session.originPos.x, session.originPos.y, session.originPos.z,
-                            session.originYaw, session.originPitch);
-                    player.fallDistance = 0.0f;
-                }
-                // Восстанавливаем игровой режим после телепорта
-                player.setInvisible(false);
-                player.gameMode.changeGameModeForPlayer(session.gameMode);
-            }
+            boolean selfChunkMode = this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity;
 
-            // Удаляем декой
-            ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(player.getUUID());
+            if (selfChunkMode) {
+                // Игрок не перемещался — только снимаем режим self-chunk.
+                ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(player.getUUID());
+                ru.liko.wrbdrones.util.PilotChunkTicket.release(player);
+                // Вернуть углы взгляда оператора (тело не двигалось, но камера была на дроне).
+                var session = controlSession;
+                if (session != null) {
+                    player.setYRot(session.originYaw);
+                    player.setXRot(session.originPitch);
+                    player.setYHeadRot(session.originYaw);
+                }
+            } else {
+                // СТАРЫЙ путь: телепорт-назад + восстановление режима.
+                var session = controlSession;
+                if (session != null && player.getServer() != null) {
+                    ServerLevel target = player.getServer().getLevel(session.dimension);
+                    if (target != null) {
+                        player.teleportTo(target, session.originPos.x, session.originPos.y, session.originPos.z,
+                                session.originYaw, session.originPitch);
+                        player.fallDistance = 0.0f;
+                    }
+                    player.setInvisible(false);
+                    player.gameMode.changeGameModeForPlayer(session.gameMode);
+                }
+                ru.liko.wrbdrones.util.PlayerDecoyManager.removeDecoy(player.getUUID());
+            }
 
         } finally {
             wrbdrones$endingControl = false;
