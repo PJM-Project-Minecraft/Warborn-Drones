@@ -1011,6 +1011,16 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     if (this instanceof ru.liko.wrbdrones.entity.FpvDroneEntity
                             && controlSession != null
                             && wrbdrones$controllerUuid != null) {
+                        // Пилот стоит неподвижно — handleMovePlayer никогда не вызывает
+                        // getChunkSource().move для него, поэтому ChunkMap.move и редирект
+                        // ChunkMapPilotAnchorMixin никогда не сработают сами по себе. Вызываем
+                        // явно каждый тик, чтобы стриминг чанков следовал за движущимся FPV-дроном.
+                        serverLevel.getChunkSource().move(serverPlayer);
+
+                        // Ускоряем отправку чанков клиенту, чтобы быстрый FPV-дрон не обгонял
+                        // загрузку. Снимается в endRemoteControl.
+                        ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), true);
+
                         net.minecraft.world.phys.Vec3 anchor = controlSession.originPos;
                         if (anchor != null && (serverPlayer.position().distanceToSqr(anchor) > 1.0E-4
                                 || !serverPlayer.getDeltaMovement().equals(net.minecraft.world.phys.Vec3.ZERO))) {
