@@ -259,6 +259,13 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         if (motion.lengthSqr() > 0.0001) {
             this.move(MoverType.SELF, motion);
         }
+        // Self-chunk режим: игрок не рядом с дроном, и штатная клиентская интерполяция
+        // поворота SBW (handleClientSync) для контролёра не обновляет yaw/pitch — поэтому
+        // клиентская ориентация Lancet застывала и камера (читающая getYaw/getBodyPitch)
+        // не следила за манёврами. Драйвим ориентацию из синхронизированных серверных
+        // углов (serverYaw/serverPitch synced), чтобы клиент совпадал с сервером.
+        this.setYRot(this.getServerYaw());
+        this.setXRot(this.getServerPitch());
         this.setBodyXRot(this.getXRot());
         this.setZRot(this.getRoll());
     }
