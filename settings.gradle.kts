@@ -14,8 +14,8 @@ plugins {
 
 rootProject.name = "wrbdrones"
 
-// SuperbWarfare лежит вне репозитория WRBDrones (общая папка с исходниками SBW)
-val superbWarfareRoot = settingsDir.resolve("../../!libs and references/SuperbWarfare").normalize()
+// SuperbWarfare-форк лежит рядом с WRBDrones в общей папке "!Curseforge Mods"
+val superbWarfareRoot = settingsDir.resolve("../SuperbWarfare-fork-PJM").normalize()
 
 // Используем composite build вместо include для отдельного проекта SuperbWarfare
 includeBuild(superbWarfareRoot) {

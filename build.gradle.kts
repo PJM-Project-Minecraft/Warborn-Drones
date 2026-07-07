@@ -14,9 +14,9 @@ group = "ru.liko.wrbdrones"
 
 repositories {
     mavenLocal()
-    // flatDir для локальных jar-ок SBW (например, simplebedrockmodel)
+    // flatDir для локальных jar-ок SBW-форка (например, simplebedrockmodel, rhino)
     flatDir {
-        dir(file("../../!libs and references/SuperbWarfare/libs"))
+        dir(file("../SuperbWarfare-fork-PJM/libs"))
     }
     maven {
         url = uri("https://maven.theillusivec4.top/")
@@ -54,6 +54,14 @@ repositories {
         url = uri("https://www.jitpack.io")
         content {
             includeGroup("com.github.mcmodderanchor")
+        }
+    }
+    // Modrinth — форковый simplebedrockmodel 2.3.3 тянет транзитивы maven.modrinth:sodium
+    // и maven.modrinth:acceleratedrendering (в референсном 2.2.1 их не было)
+    maven {
+        url = uri("https://api.modrinth.com/maven")
+        content {
+            includeGroup("maven.modrinth")
         }
     }
     // mavenCentral — нужен для транзитивных зависимостей kotlinforforge

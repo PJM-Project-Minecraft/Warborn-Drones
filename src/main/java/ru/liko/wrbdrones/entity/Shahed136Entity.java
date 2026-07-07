@@ -485,7 +485,8 @@ public class Shahed136Entity extends Entity implements GeoEntity {
                     .damageSource(ModDamageTypes.causeCustomExplosionDamage(this.level().registryAccess(), this, null))
                     .damage(damage)
                     .radius(radius)
-                    .damageMultiplier(2.0f)
+                    // damageMultiplier убран в форке SBW: CustomExplosion теперь наносит
+                    // единый урон всем сущностям (без бонуса по мобам).
                     .withParticleType(ParticleTool.ParticleType.GIANT)
                     .explode();
 

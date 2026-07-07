@@ -899,14 +899,15 @@ public class ZalaLancetEntity extends AddonDroneEntity {
 
         float damage = ServerConfig.LANCET_EXPLOSION_DAMAGE.get().floatValue();
         float radius = ServerConfig.LANCET_EXPLOSION_RADIUS.get().floatValue();
-        float vehicleMultiplier = ServerConfig.LANCET_VEHICLE_DAMAGE_MULTIPLIER.get().floatValue();
         DamageSource damageSource = ModDamageTypes.causeCustomExplosionDamage(this.level().registryAccess(), this, attacker);
 
+        // damageMultiplier убран в форке SBW: CustomExplosion теперь наносит единый
+        // урон всем сущностям (без бонуса по мобам). Конфиг LANCET_VEHICLE_DAMAGE_MULTIPLIER
+        // больше не задействован.
         new CustomExplosion.Builder(this)
                 .damageSource(damageSource)
                 .damage(damage)
                 .radius(radius)
-                .damageMultiplier(vehicleMultiplier)
                 .withParticleType(ParticleTool.ParticleType.MEDIUM)
                 .explode();
 

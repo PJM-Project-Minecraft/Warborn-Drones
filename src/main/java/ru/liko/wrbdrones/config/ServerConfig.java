@@ -29,7 +29,6 @@ public class ServerConfig {
     public static ModConfigSpec.DoubleValue LANCET_LOITER_ALTITUDE;
     public static ModConfigSpec.DoubleValue LANCET_EXPLOSION_DAMAGE;
     public static ModConfigSpec.DoubleValue LANCET_EXPLOSION_RADIUS;
-    public static ModConfigSpec.DoubleValue LANCET_VEHICLE_DAMAGE_MULTIPLIER;
 
     // REB конфигурация
     public static ModConfigSpec.DoubleValue REB_RADIUS;
@@ -143,9 +142,6 @@ public class ServerConfig {
 
         builder.comment("Built-in warhead explosion radius for ZALA Lancet");
         LANCET_EXPLOSION_RADIUS = builder.defineInRange("explosion_radius", 7.0, 1.0, 64.0);
-
-        builder.comment("Damage multiplier for ZALA Lancet explosion against SBW vehicles (tanks, APCs, etc.). Higher value compensates SBW vehicle armor reduction.");
-        LANCET_VEHICLE_DAMAGE_MULTIPLIER = builder.defineInRange("vehicle_damage_multiplier", 4.0, 0.1, 50.0);
 
         builder.pop();
 
