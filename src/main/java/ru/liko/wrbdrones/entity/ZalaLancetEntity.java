@@ -92,6 +92,11 @@ public class ZalaLancetEntity extends AddonDroneEntity {
             EntityDataSerializers.FLOAT);
     private static final EntityDataAccessor<Boolean> FREE_CAMERA = SynchedEntityData.defineId(ZalaLancetEntity.class,
             EntityDataSerializers.BOOLEAN);
+    // Крен (банк) считается только на сервере в updateFixedWingFlight, а SBW синхронизирует
+    // лишь yaw/pitch (SERVER_YAW/SERVER_PITCH). Гоняем крен отдельным synced-полем, иначе в
+    // self-chunk режиме клиент его не получает и модель проходит виражи «плашмя».
+    private static final EntityDataAccessor<Float> SYNC_ROLL = SynchedEntityData.defineId(ZalaLancetEntity.class,
+            EntityDataSerializers.FLOAT);
 
     public static final int MODE_COURSE = 0;
     public static final int MODE_RECON = 1;
@@ -201,6 +206,7 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         builder.define(RECON_TARGET_Y, 0.0f);
         builder.define(RECON_TARGET_Z, 0.0f);
         builder.define(FREE_CAMERA, false);
+        builder.define(SYNC_ROLL, 0.0f);
     }
 
     @Override
@@ -267,7 +273,8 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         this.setYRot(this.getServerYaw());
         this.setXRot(this.getServerPitch());
         this.setBodyXRot(this.getXRot());
-        this.setZRot(this.getRoll());
+        // Крен приходит отдельным synced-полем (SBW его не гоняет) — иначе модель не банкует.
+        this.setZRot(this.entityData.get(SYNC_ROLL));
     }
 
     private void serverFlightTick(boolean hadFire) {
@@ -470,6 +477,8 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         float rollRate = MANUAL_ROLL_RATE
                 * Mth.clamp(airspeed / Math.max(getCruiseSpeed(), 0.01f), 0.4f, 1.4f);
         setZRot(Mth.approach(this.getRoll(), targetRoll, rollRate));
+        // Публикуем крен клиенту (SBW синхронизирует только yaw/pitch).
+        this.entityData.set(SYNC_ROLL, this.getRoll());
 
         float bankYaw = this.getRoll() * bankFactor;
         float rudderYaw = smoothedRudder * RUDDER_YAW_RATE;
