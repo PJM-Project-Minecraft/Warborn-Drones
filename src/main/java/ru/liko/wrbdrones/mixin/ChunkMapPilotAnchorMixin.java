@@ -12,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import ru.liko.wrbdrones.util.PilotViewAnchors;
 
 /**
- * Делает дрон консистентным «центром обзора» пилота в трёх местах ChunkMap:
+ * Делает дрон консистентным «центром обзора» пилота в четырёх местах ChunkMap:
  * <ol>
  *   <li>{@code move} — уже был: подменяет {@code SectionPos.of(player)} секцией дрона,
  *       чтобы {@code DistanceManager} стримил чанки вокруг дрона.</li>
@@ -21,9 +21,15 @@ import ru.liko.wrbdrones.util.PilotViewAnchors;
  *   <li>{@code updateChunkTracking} — подменяет {@code player.chunkPosition()} секцией
  *       дрона, чтобы {@code ClientboundSetChunkCacheCenterPacket} ре-центрировал
  *       клиентский {@code ClientChunkCache} на дрон, и клиент сохранял присланные чанки.</li>
+ *   <li>{@code updatePlayerStatus} — подменяет {@code SectionPos.of(player)} в пути
+ *       addPlayer ({@code addEntity} при входе/респавне/смене измерения), чтобы
+ *       {@code distanceManager.addPlayer} регистрировал игрока в чанке дрона —
+ *       синхронно с {@code lastSectionPos} (п. 2). Без этого {@code lastSectionPos}
+ *       указывал на дрон, а запись в {@code playersPerChunk} — на реальный чанк, и
+ *       следующий {@code move()} падал NPE в {@code DistanceManager#removePlayer}.</li>
  * </ol>
  *
- * <p>Все три redirect используют общий хелпер {@link #wrbdrones$anchorDroneFor(Entity)}.
+ * <p>Все четыре redirect используют общий хелпер {@link #wrbdrones$anchorDroneFor(Entity)}.
  */
 @Mixin(ChunkMap.class)
 public class ChunkMapPilotAnchorMixin {
@@ -133,5 +139,45 @@ public class ChunkMapPilotAnchorMixin {
             return drone.chunkPosition();
         }
         return player.chunkPosition();
+    }
+
+    // -------------------------------------------------------------------------
+    // 4. updatePlayerStatus → SectionPos.of(player)  (путь addPlayer)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Подменяет {@code SectionPos.of(player)} в {@code updatePlayerStatus(player, added=true)}
+     * секцией дрона. {@code updatePlayerStatus} вызывается из {@code addEntity}/
+     * {@code removeEntity} при добавлении/удалении игрока в ChunkMap (вход, респавн,
+     * смена измерения).
+     *
+     * <p>Внутри {@code updatePlayerStatus(added=true)} ванильный код сначала вызывает
+     * {@code updatePlayerPos(player)} (редиректится п. 2 → {@code setLastSectionPos(дрон)}),
+     * а затем {@code distanceManager.addPlayer(SectionPos.of(player), player)}. До этого
+     * редиректа {@code addPlayer} регистрировал игрока в РЕАЛЬНОМ чанке, тогда как
+     * {@code lastSectionPos} уже указывал на дрон — рассинхрон. Следующий {@code move()}
+     * делал {@code removePlayer(lastSectionPos=дрон)} по чанку без записи в
+     * {@code playersPerChunk} → NPE в {@code DistanceManager#removePlayer}. Редиректим
+     * и этот вызов, чтобы {@code addPlayer} шёл в чанк дрона — тогда {@code lastSectionPos}
+     * и запись в {@code playersPerChunk} совпадают, и {@code move()} остаётся сбалансированным.
+     *
+     * @param entityAccess игрок
+     * @return секция дрона — если у игрока есть якорь; иначе — оригинальная секция
+     */
+    @Redirect(
+            method = "updatePlayerStatus(Lnet/minecraft/server/level/ServerPlayer;Z)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/core/SectionPos;of(Lnet/minecraft/world/level/entity/EntityAccess;)Lnet/minecraft/core/SectionPos;"
+            )
+    )
+    private SectionPos wrbdrones$anchorSectionInUpdatePlayerStatus(final EntityAccess entityAccess) {
+        if (entityAccess instanceof Entity entity) {
+            Entity drone = wrbdrones$anchorDroneFor(entity);
+            if (drone != null) {
+                return SectionPos.of(drone);
+            }
+        }
+        return SectionPos.of(entityAccess);
     }
 }

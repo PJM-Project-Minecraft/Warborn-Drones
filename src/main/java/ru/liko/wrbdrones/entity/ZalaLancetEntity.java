@@ -164,6 +164,12 @@ public class ZalaLancetEntity extends AddonDroneEntity {
     private float smoothedManualPitch;
     private float smoothedManualRoll;
     private float smoothedRudder;
+    // Re-entrancy guard: собственный взрыв Ланцета синхронно наносит урон всем сущностям в
+    // радиусе, включая сам дрон. Без этого флага hurt() → explode() → CustomExplosion →
+    // forceHurt → hurt() → explode() уходит в бесконечную рекурсию (StackOverflowError).
+    // discard() в конце explode() срабатывает уже ПОСЛЕ применения урона взрывом, поэтому
+    // проверка isRemoved() не спасает — нужен явный флаг.
+    private boolean exploding = false;
 
     public ZalaLancetEntity(EntityType<? extends DroneEntity> type, Level level) {
         super(type, level);
@@ -269,12 +275,39 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         // поворота SBW (handleClientSync) для контролёра не обновляет yaw/pitch — поэтому
         // клиентская ориентация Lancet застывала и камера (читающая getYaw/getBodyPitch)
         // не следила за манёврами. Драйвим ориентацию из синхронизированных серверных
-        // углов (serverYaw/serverPitch synced), чтобы клиент совпадал с сервером.
-        this.setYRot(this.getServerYaw());
-        this.setXRot(this.getServerPitch());
+        // углов (serverYaw/serverPitch synced).
+        //
+        // Раньше угол выставлялся жёстко (= serverYaw/serverPitch) каждый клиентский тик.
+        // Но SERVER_YAW/SERVER_PITCH доходят до клиента с частотой трекера сущностей
+        // (~6–7 Гц), поэтому жёсткая установка давала «ступеньки»: угол стоял несколько
+        // тиков, потом прыгал на новое значение — HUD-маркер курса и камера дёргались.
+        // Теперь сглаживаем клиентский угол к серверному (lerp за тик), так что движение
+        // непрерывно и без плоских пауз. yRotO/xRotO поддерживает ванильный setOldPosAndRot,
+        // поэтому getYaw(partialTicks) интерполирует эти мелкие шаги плавно внутри тика.
+        final float clientRotLerp = 0.5f;
+        float targetYaw = this.getServerYaw();
+        float targetPitch = this.getServerPitch();
+        this.setYRot(this.getYRot() + Mth.wrapDegrees(targetYaw - this.getYRot()) * clientRotLerp);
+        this.setXRot(this.getXRot() + Mth.wrapDegrees(targetPitch - this.getXRot()) * clientRotLerp);
         this.setBodyXRot(this.getXRot());
         // Крен приходит отдельным synced-полем (SBW его не гоняет) — иначе модель не банкует.
         this.setZRot(this.entityData.get(SYNC_ROLL));
+    }
+
+    /**
+     * Полная линейная интерполяция тангажа корпуса между тиками.
+     * <p>
+     * Базовый {@code DroneEntity.getBodyPitch(float)} использует {@code lerp(0.6*tickDelta, ...)}
+     * — фактор не доходит до 1.0 на границе тика, поэтому в конце тика отрисованное значение
+     * отстаёт от {@code pitch} на 40% от приращения, а в начале следующего тика скачет к
+     * полному {@code pitch}. Этот разрыв 20 Гц делал камеру и HUD-маркер ланцета
+     * «дёргаными» по тангажу при манёврах. Переопределяем на корректную интерполяцию
+     * (фактор = tickDelta), непрерывную на границе тика. Касается только Lancet —
+     * базовый DroneEntity (FPV/Mavic) не трогаем.
+     */
+    @Override
+    public float getBodyPitch(float tickDelta) {
+        return Mth.lerp(tickDelta, this.pitchO, this.getBodyPitch());
     }
 
     private void serverFlightTick(boolean hadFire) {
@@ -896,9 +929,10 @@ public class ZalaLancetEntity extends AddonDroneEntity {
     }
 
     public void explode() {
-        if (this.level().isClientSide() || this.isRemoved()) {
+        if (this.level().isClientSide() || this.isRemoved() || exploding) {
             return;
         }
+        exploding = true;
 
         Entity attacker = getController();
         if (attacker != null) {
@@ -926,7 +960,7 @@ public class ZalaLancetEntity extends AddonDroneEntity {
     @Override
     public boolean hurt(@NotNull DamageSource source, float amount) {
         boolean result = super.hurt(source, amount);
-        if (!this.level().isClientSide() && this.getHealth() <= 0.0f && !this.isRemoved()) {
+        if (!this.level().isClientSide() && this.getHealth() <= 0.0f && !this.isRemoved() && !exploding) {
             explode();
         }
         return result;

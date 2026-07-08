@@ -63,6 +63,14 @@ public class ServerConfig {
     public static ModConfigSpec.DoubleValue SHAHED136_MAX_ALTITUDE;
     public static ModConfigSpec.DoubleValue SHAHED136_CRUISE_ALTITUDE;
 
+    // Автопилот: пропорциональное наведение, путевые точки, terrain-following
+    public static ModConfigSpec.DoubleValue SHAHED136_NAV_CONSTANT;
+    public static ModConfigSpec.DoubleValue SHAHED136_WAYPOINT_ADVANCE_RADIUS;
+    public static ModConfigSpec.BooleanValue SHAHED136_TERRAIN_FOLLOW_ALLOWED;
+    public static ModConfigSpec.DoubleValue SHAHED136_TERRAIN_FOLLOW_CLEARANCE;
+    public static ModConfigSpec.DoubleValue SHAHED136_TERRAIN_FOLLOW_LOOKAHEAD;
+    public static ModConfigSpec.IntValue SHAHED136_MAX_WAYPOINTS;
+
     // Звук дронов (дистанция слышимости)
     public static ModConfigSpec.DoubleValue SHAHED_SOUND_MAX_DISTANCE;
     public static ModConfigSpec.DoubleValue FPV_SOUND_MAX_DISTANCE;
@@ -235,6 +243,28 @@ public class ServerConfig {
 
         builder.comment("Default Cruise altitude (blocks above target) for Shahed 136");
         SHAHED136_CRUISE_ALTITUDE = builder.defineInRange("cruise_altitude", 80.0, -200.0, 5000.0);
+
+        builder.comment("Proportional navigation constant N for terminal homing (typical 3–4). "
+                + "Higher = more aggressive lead/intercept curve, but can overshoot at low turn authority.");
+        SHAHED136_NAV_CONSTANT = builder.defineInRange("nav_constant", 3.5, 1.0, 6.0);
+
+        builder.comment("Radius (blocks, horizontal) within which an intermediate waypoint is considered reached "
+                + "and the route advances to the next point. Final waypoint is never advanced past.");
+        SHAHED136_WAYPOINT_ADVANCE_RADIUS = builder.defineInRange("waypoint_advance_radius", 40.0, 5.0, 200.0);
+
+        builder.comment("Whether terrain-following (low-altitude ingress over terrain) may be enabled per launch. "
+                + "If false, the per-launch toggle is forced off regardless of operator input.");
+        SHAHED136_TERRAIN_FOLLOW_ALLOWED = builder.define("terrain_follow_allowed", true);
+
+        builder.comment("Terrain-following clearance (blocks above ground) when the mode is active.");
+        SHAHED136_TERRAIN_FOLLOW_CLEARANCE = builder.defineInRange("terrain_follow_clearance", 30.0, 5.0, 300.0);
+
+        builder.comment("Terrain-following look-ahead distance (blocks) along the heading; samples terrain ahead "
+                + "to avoid flying into a rising slope. 0 = sample only directly below.");
+        SHAHED136_TERRAIN_FOLLOW_LOOKAHEAD = builder.defineInRange("terrain_follow_lookahead", 32.0, 0.0, 128.0);
+
+        builder.comment("Maximum number of intermediate waypoints the operator may set per launch.");
+        SHAHED136_MAX_WAYPOINTS = builder.defineInRange("max_waypoints", 6, 0, 16);
 
         builder.pop();
 

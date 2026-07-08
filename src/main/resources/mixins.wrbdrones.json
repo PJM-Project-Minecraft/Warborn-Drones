@@ -9,7 +9,8 @@
     "DroneDropMixin",
     "PlayerChunkSenderMixin",
     "ChunkMapPilotAnchorMixin",
-    "ChunkMapTrackedEntityMixin"
+    "ChunkMapTrackedEntityMixin",
+    "DistanceManagerRemovePlayerGuardMixin"
   ],
   "client": [
     "DroneHudOverlayMixin",

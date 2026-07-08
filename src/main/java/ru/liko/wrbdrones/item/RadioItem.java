@@ -16,9 +16,11 @@ import com.atsuishio.superbwarfare.tools.NBTTool;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import net.neoforged.neoforge.network.PacketDistributor;
+import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.network.ModNetworking;
 import ru.liko.wrbdrones.network.OpenRadioScreenPacket;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +38,10 @@ public class RadioItem extends Item {
     public static final String TAG_DRONE_Y = "DroneY";
     public static final String TAG_DRONE_Z = "DroneZ";
     public static final String TAG_DRONE_LAUNCHED = "DroneLaunched";
+    // Автопилот: состояние маршрута/рельефа (зеркалируется из сущности для тултипа)
+    public static final String TAG_TERRAIN_FOLLOW = "TerrainFollow";
+    public static final String TAG_WAYPOINT_COUNT = "WaypointCount";
+    public static final String TAG_ACTIVE_WAYPOINT = "ActiveWaypoint";
 
     public RadioItem(Properties properties) {
         super(properties);
@@ -61,7 +67,16 @@ public class RadioItem extends Item {
                                 (int) tag.getFloat(TAG_TARGET_Z),
                                 (int) shahed.getX(),
                                 (int) shahed.getY(),
-                                (int) shahed.getZ()));
+                                (int) shahed.getZ(),
+                                false,
+                                new ArrayList<>(),
+                                ServerConfig.SHAHED136_MIN_SPEED_KMH.get(),
+                                ServerConfig.SHAHED136_MAX_SPEED_KMH.get(),
+                                ServerConfig.SHAHED136_MIN_ALTITUDE.get(),
+                                ServerConfig.SHAHED136_MAX_ALTITUDE.get(),
+                                ServerConfig.SHAHED136_MAX_DISTANCE.get(),
+                                ServerConfig.SHAHED136_MAX_WAYPOINTS.get(),
+                                ServerConfig.SHAHED136_TERRAIN_FOLLOW_ALLOWED.get()));
                         return InteractionResultHolder.success(stack);
                     } else if (shahed == null) {
                         tag.putBoolean(TAG_LINKED, false);
@@ -175,6 +190,9 @@ public class RadioItem extends Item {
                         tag.putFloat(TAG_TARGET_X, (float) shahed.getTargetPos().x);
                         tag.putFloat(TAG_TARGET_Y, (float) shahed.getTargetPos().y);
                         tag.putFloat(TAG_TARGET_Z, (float) shahed.getTargetPos().z);
+                        tag.putBoolean(TAG_TERRAIN_FOLLOW, shahed.isTerrainFollow());
+                        tag.putInt(TAG_WAYPOINT_COUNT, shahed.getWaypoints().size());
+                        tag.putInt(TAG_ACTIVE_WAYPOINT, shahed.getActiveWaypoint());
                     }
                     NBTTool.saveTag(stack, tag);
                 } else {
@@ -226,6 +244,15 @@ public class RadioItem extends Item {
                 double dz = targetZ - droneZ;
                 double dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
                 tooltip.add(Component.literal("§7До цели: §b" + (int) dist + " м"));
+
+                int wpCount = tag.getInt(TAG_WAYPOINT_COUNT);
+                int wpActive = tag.getInt(TAG_ACTIVE_WAYPOINT);
+                if (wpCount > 0) {
+                    tooltip.add(Component.literal("§7Маршрут: §f" + wpCount + " точ., актив. #" + (wpActive + 1)));
+                }
+                if (tag.getBoolean(TAG_TERRAIN_FOLLOW)) {
+                    tooltip.add(Component.literal("§7Рельеф: §aоблёт"));
+                }
             }
         } else {
             tooltip.add(Component.literal("§8Не привязан"));

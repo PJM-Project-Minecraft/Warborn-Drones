@@ -6,6 +6,8 @@ import com.atsuishio.superbwarfare.tools.ParticleTool;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
@@ -35,6 +37,9 @@ import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.entity.flight.AircraftProfile;
 import ru.liko.wrbdrones.entity.flight.FixedWingDynamics;
 import ru.liko.wrbdrones.entity.flight.FlightDemand;
+import ru.liko.wrbdrones.entity.flight.ProportionalNavigation;
+import ru.liko.wrbdrones.entity.flight.TerrainFollower;
+import ru.liko.wrbdrones.entity.flight.WaypointRoute;
 import ru.liko.wrbdrones.item.RadioItem;
 import ru.liko.wrbdrones.network.ShahedExplodePacket;
 import ru.liko.wrbdrones.registry.ModItems;
@@ -149,6 +154,22 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
     /** Квадрат дальности до цели в прошлый тик (взрыватель «ближайшего подхода»). −1 = не армирован. */
     private double prevTargetDistSqr = -1.0;
+
+    // ── Автопилот: маршрут, PNG, terrain-following (серверная физика) ──
+    /** Полный маршрут: промежуточные точки + финальная цель. Пустой = только getTargetPos(). */
+    private List<Vec3> waypoints = new ArrayList<>();
+    /** Активный индекс маршрута (к этой точке летим в крейсере). */
+    private int activeWaypoint = 0;
+    /** LOS-угол (MC-yaw, град) предыдущего тика для PNG. NaN = первый тик / не армирован. */
+    private double prevLosYawDeg = Double.NaN;
+    /** Дальность до финальной цели предыдущего тика (бл) для PNG. */
+    private double prevRange = Double.NaN;
+    /** Режим облёта рельефа (AGL-зазор вместо абсолютной высоты). */
+    private boolean terrainFollow = false;
+    /** Сглаженный «пол» рельефа (low-pass) — стыки биомов не дёргают тангаж. NaN = не инициализирован. */
+    private double smoothedGroundY = Double.NaN;
+    /** Скорость low-pass сглаживания рельефа за тик (0..1). */
+    private static final float TF_GROUND_SMOOTH = 0.15f;
 
     @Nullable
     private UUID ownerUUID;
@@ -308,6 +329,42 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
     public float getCurrentSpeed() {
         return (float) this.getDeltaMovement().length();
+    }
+
+    // ── Autopilot state: waypoints, terrain-follow ──────────────────
+
+    /**
+     * Полный маршрут (промежуточные + финал). До launch() хранит только via-точки,
+     * после launch() — via + финальная цель.
+     */
+    public List<Vec3> getWaypoints() {
+        return waypoints;
+    }
+
+    /**
+     * Задаёт промежуточные путевые точки (без финальной цели). Финал берётся из
+     * {@link #getTargetPos()} и добавляется в {@link #launch()}. Лимитируется конфигом.
+     */
+    public void setWaypoints(List<Vec3> viaPoints) {
+        int max = ServerConfig.SHAHED136_MAX_WAYPOINTS.get();
+        this.waypoints = new ArrayList<>();
+        int limit = Math.min(viaPoints.size(), Math.max(0, max));
+        for (int i = 0; i < limit; i++) {
+            this.waypoints.add(viaPoints.get(i));
+        }
+    }
+
+    public boolean isTerrainFollow() {
+        return terrainFollow;
+    }
+
+    /** Включается только если глобальный конфиг {@code terrain_follow_allowed} разрешает. */
+    public void setTerrainFollow(boolean terrainFollow) {
+        this.terrainFollow = terrainFollow && ServerConfig.SHAHED136_TERRAIN_FOLLOW_ALLOWED.get();
+    }
+
+    public int getActiveWaypoint() {
+        return activeWaypoint;
     }
 
     // ── Lifecycle: tick, launch, hurt, interact, explode, remove ────
@@ -470,6 +527,19 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         // разгоняемся газ-серво до крейсерской — без рывка «мгновенно на полной».
         setAirspeed(getSetSpeed() * LAUNCH_SPEED_FACTOR);
         this.throttle = 0.5f;
+
+        // Построить полный маршрут: промежуточные via-точки + финальная цель (getTargetPos).
+        // setWaypoints() хранил только via; здесь достраиваем финал. Если via нет —
+        // маршрут = [цель] (обратная совместимость со старым запуском по одной точке).
+        List<Vec3> route = new ArrayList<>(this.waypoints);
+        route.add(getTargetPos());
+        this.waypoints = route;
+        this.activeWaypoint = 0;
+        // Сброс состояния наведения — чистый старт PNG/terrain-follow.
+        this.prevLosYawDeg = Double.NaN;
+        this.prevRange = Double.NaN;
+        this.smoothedGroundY = Double.NaN;
+        this.prevTargetDistSqr = -1.0;
     }
 
     public void explode() {
@@ -523,9 +593,22 @@ public class Shahed136Entity extends Entity implements GeoEntity {
 
     private void updateFlight() {
         Vec3 currentPos = this.position();
-        Vec3 targetPos = getTargetPos();
-        double distXZ = Math.sqrt(currentPos.distanceToSqr(targetPos.x, currentPos.y, targetPos.z));
-        boolean terminal = distXZ < TERMINAL_PHASE_DISTANCE;
+
+        // ── Маршрут: полный (via + финал) или вырожденный в единственную цель ──
+        List<Vec3> route = this.waypoints;
+        boolean hasRoute = !route.isEmpty();
+        Vec3 finalTarget = hasRoute ? WaypointRoute.finalTarget(route) : getTargetPos();
+
+        // Продвижение по маршруту: вошёл в радиус смены промежуточной точки → далее.
+        if (hasRoute) {
+            double advanceRadius = ServerConfig.SHAHED136_WAYPOINT_ADVANCE_RADIUS.get();
+            this.activeWaypoint = WaypointRoute.advance(route, this.activeWaypoint, currentPos, advanceRadius);
+        }
+        Vec3 activeTarget = hasRoute ? WaypointRoute.active(route, this.activeWaypoint) : getTargetPos();
+
+        // Терминальная фаза определяется по дальности до ФИНАЛЬНОЙ цели.
+        double distXZFinal = Math.sqrt(currentPos.distanceToSqr(finalTarget.x, currentPos.y, finalTarget.z));
+        boolean terminal = distXZFinal < TERMINAL_PHASE_DISTANCE;
 
         AircraftProfile profile = shahedProfile();
 
@@ -543,14 +626,14 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         airspeed = FixedWingDynamics.integrateAirspeed(airspeed, this.getXRot(), throttle, profile);
         airspeed = Mth.clamp(airspeed, 0.0f, profile.diveMaxSpeed());
         // На сближении в терминале гасим до манёвренной — тугой радиус R = v/ω доворачивает на точку.
-        if (terminal && distXZ < TERMINAL_HOMING_RANGE) {
+        if (terminal && distXZFinal < TERMINAL_HOMING_RANGE) {
             float maneuverCap = Math.min(profile.diveMaxSpeed(), getSetSpeed() * TERMINAL_MANEUVER_SPEED_FACTOR);
             airspeed = Math.min(airspeed, maneuverCap);
         }
         setAirspeed(airspeed);
 
-        // ── 3. Команда автопилота ──
-        FlightDemand demand = computeFlightDemand(currentPos, targetPos, distXZ, terminal);
+        // ── 3. Команда автопилота (PNG в терминале, курсовой режим по waypoint в крейсере) ──
+        FlightDemand demand = computeFlightDemand(currentPos, activeTarget, finalTarget, distXZFinal, terminal);
 
         // ── 4. Тангаж: доводим к demand.pitch(), при сваливании нос вниз ──
         float pitchResponse = terminal ? TERMINAL_PITCH_RESPONSE : PITCH_RESPONSE;
@@ -593,9 +676,9 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         this.setDeltaMovement(motion);
         this.move(MoverType.SELF, motion);
 
-        // ── 8. Терминальный взрыватель (контакт + ближайший подход) ──
+        // ── 8. Терминальный взрыватель (контакт + ближайший подход) по финальной цели ──
         if (terminal) {
-            checkTerminalDetonation(targetPos);
+            checkTerminalDetonation(finalTarget);
             if (this.isRemoved()) return;
         } else {
             prevTargetDistSqr = -1.0;
@@ -608,18 +691,27 @@ public class Shahed136Entity extends Entity implements GeoEntity {
     }
 
     /**
-     * Команда курсового автопилота к точке-цели. Тангаж — на удержание заданной высоты
-     * (крейсер) либо на пикирование (терминал); рыскание — рассогласование курса.
-     * Режим уклонения подмешивает синусоиду в курс и высоту (как прежде).
+     * Команда автопилота. В крейсере — курсовой режим к активной путевой точке
+     * (pure-pursuit по азимуту) с удержанием высоты (абсолютной или AGL). В терминале —
+     * пропорциональное наведение (PNG) на финальную цель + пикирование на её Y.
+     * Режим уклонения подмешивает синусоиду в курс и высоту (только вне терминала).
      */
-    private FlightDemand computeFlightDemand(Vec3 currentPos, Vec3 targetPos, double distXZ, boolean terminal) {
-        double desiredY = targetPos.y;
-        if (distXZ > CRUISE_PHASE_DISTANCE) {
-            desiredY = getSetAltitude();
+    private FlightDemand computeFlightDemand(Vec3 currentPos, Vec3 activeTarget, Vec3 finalTarget,
+                                             double distXZFinal, boolean terminal) {
+        // ── Тангаж: целевая высота ──
+        double desiredY;
+        if (terminal) {
+            desiredY = finalTarget.y;
+        } else if (distXZFinal > CRUISE_PHASE_DISTANCE) {
+            desiredY = cruiseAltitude(currentPos);
+        } else {
+            desiredY = finalTarget.y;
         }
 
-        double dx = targetPos.x - currentPos.x;
-        double dz = targetPos.z - currentPos.z;
+        // ── Курс: к активной точке (крейсер) или к финалу (терминал, PNG) ──
+        Vec3 aimTarget = terminal ? finalTarget : activeTarget;
+        double dx = aimTarget.x - currentPos.x;
+        double dz = aimTarget.z - currentPos.z;
         float desiredYaw = (float) (Mth.atan2(dz, dx) * (180D / Math.PI)) - 90.0F;
 
         if (isEvasiveMode() && !terminal) {
@@ -629,18 +721,17 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         }
 
         double dy = desiredY - currentPos.y;
-        float yawDiff = Mth.wrapDegrees(desiredYaw - this.getYRot());
+        double distXZAim = Math.sqrt(dx * dx + dz * dz);
 
         float maxPitch = terminal ? TERMINAL_MAX_PITCH : CRUISE_MAX_PITCH;
-        float desiredPitch = (float) (-(Mth.atan2(dy, distXZ) * (180D / Math.PI)));
-        if (distXZ > CLOSE_RANGE_DISTANCE) {
+        float desiredPitch = (float) (-(Mth.atan2(dy, distXZAim) * (180D / Math.PI)));
+        if (distXZAim > CLOSE_RANGE_DISTANCE) {
             desiredPitch = Mth.clamp(desiredPitch, -maxPitch, maxPitch);
         } else {
             desiredPitch = Mth.clamp(desiredPitch, -FULL_PITCH_RANGE, FULL_PITCH_RANGE);
         }
 
-        // Плавный выход на высоту после старта: первые секунды ограничиваем угол
-        // кабрирования (нос вверх — отрицательный тангаж), наращивая предел до полного.
+        // Плавный выход на высоту после старта.
         if (!terminal && launchTicks < LAUNCH_CLIMB_TICKS) {
             float t = launchTicks / (float) LAUNCH_CLIMB_TICKS;
             float maxClimb = Mth.lerp(t, LAUNCH_INITIAL_MAX_CLIMB, maxPitch);
@@ -648,14 +739,57 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         }
 
         float turnRate;
+        float yawDiff;
         if (terminal) {
-            float t = (float) Mth.clamp(1.0 - distXZ / TERMINAL_HOMING_RANGE, 0.0, 1.0);
-            turnRate = Mth.lerp(t, TERMINAL_TURN_SPEED, TERMINAL_TURN_RATE_CLOSE);
+            // PNG: команда темпа разворота → эквивалентный yawDiff, чтобы
+            // autoYawChange = clamp(yawDiff·GAIN, ±turnRate) совпал с PNG-командой.
+            float maxTurn = computeTerminalTurnRate(distXZFinal);
+            ProportionalNavigation.PngStep png = ProportionalNavigation.stepHorizontal(
+                    currentPos, this.getDeltaMovement(), finalTarget,
+                    this.prevLosYawDeg, this.prevRange,
+                    ServerConfig.SHAHED136_NAV_CONSTANT.get().floatValue(), maxTurn);
+            this.prevLosYawDeg = png.losYawDeg();
+            this.prevRange = png.rangeH();
+            float cmd = png.cmdHeadingRateDeg();
+            yawDiff = COURSE_DIRECT_YAW_GAIN > 0.0f ? cmd / COURSE_DIRECT_YAW_GAIN : 0.0f;
+            turnRate = maxTurn;
         } else {
+            yawDiff = Mth.wrapDegrees(desiredYaw - this.getYRot());
             turnRate = TURN_SPEED;
+            // Сброс PNG-состояния вне терминала — при повторном входе арминг заново.
+            this.prevLosYawDeg = Double.NaN;
+            this.prevRange = Double.NaN;
         }
 
         return new FlightDemand(true, desiredPitch, yawDiff, turnRate);
+    }
+
+    /** Темп разворота в терминале: растёт с 5→14°/тик по мере сближения (R = v/ω туже). */
+    private float computeTerminalTurnRate(double distXZFinal) {
+        float t = (float) Mth.clamp(1.0 - distXZFinal / TERMINAL_HOMING_RANGE, 0.0, 1.0);
+        return Mth.lerp(t, TERMINAL_TURN_SPEED, TERMINAL_TURN_RATE_CLOSE);
+    }
+
+    /**
+     * Целевая высота крейсера: AGL-зазор (terrain-follow) или абсолютная setAltitude.
+     * Сглаживает «пол» рельефа low-pass, чтобы стыки биомов/холмы не дёргали тангаж.
+     */
+    private double cruiseAltitude(Vec3 currentPos) {
+        if (!terrainFollow) {
+            return getSetAltitude();
+        }
+        double clearance = ServerConfig.SHAHED136_TERRAIN_FOLLOW_CLEARANCE.get();
+        double lookahead = ServerConfig.SHAHED136_TERRAIN_FOLLOW_LOOKAHEAD.get();
+        Vec3 heading = Vec3.directionFromRotation(this.getXRot(), this.getYRot());
+        double groundY = TerrainFollower.sampleGroundY(this.level(), currentPos, heading, lookahead);
+        if (Double.isNaN(this.smoothedGroundY)) {
+            this.smoothedGroundY = groundY;
+        } else {
+            this.smoothedGroundY = Mth.lerp(TF_GROUND_SMOOTH, this.smoothedGroundY, groundY);
+        }
+        double desired = this.smoothedGroundY + clearance;
+        double maxAlt = ServerConfig.SHAHED136_MAX_ALTITUDE.get();
+        return Mth.clamp(desired, -64.0, Math.min(maxAlt, 319.0));
     }
 
     /** Профиль аэродинамики Shahed: крейсер = заданная операторская скорость. */
@@ -813,6 +947,22 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         if (tag.contains("SpawnZ")) this.spawnZ = tag.getFloat("SpawnZ");
         if (tag.contains("LaunchTicks")) launchTicks = tag.getInt("LaunchTicks");
         if (tag.contains("HasPlayedStartSound")) hasPlayedStartSound = tag.getBoolean("HasPlayedStartSound");
+
+        // Маршрут (полный: промежуточные + финал). Старые сохранения без тега → пустой
+        // маршрут, updateFlight вырождается в getTargetPos() (обратная совместимость).
+        this.waypoints = new ArrayList<>();
+        if (tag.contains("Waypoints")) {
+            ListTag wpList = tag.getList("Waypoints", Tag.TAG_COMPOUND);
+            for (int i = 0; i < wpList.size(); i++) {
+                CompoundTag c = wpList.getCompound(i);
+                this.waypoints.add(new Vec3(c.getDouble("X"), c.getDouble("Y"), c.getDouble("Z")));
+            }
+        }
+        if (tag.contains("ActiveWaypoint")) this.activeWaypoint = tag.getInt("ActiveWaypoint");
+        if (tag.contains("TerrainFollow")) setTerrainFollow(tag.getBoolean("TerrainFollow"));
+        if (tag.contains("PrevLosYaw")) this.prevLosYawDeg = tag.getDouble("PrevLosYaw");
+        if (tag.contains("PrevRange")) this.prevRange = tag.getDouble("PrevRange");
+        if (tag.contains("SmoothedGroundY")) this.smoothedGroundY = tag.getDouble("SmoothedGroundY");
     }
 
     @Override
@@ -834,6 +984,25 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         tag.putFloat("SpawnX", this.spawnX);
         tag.putFloat("SpawnY", this.spawnY);
         tag.putFloat("SpawnZ", this.spawnZ);
+
+        // Полный маршрут (промежуточные + финал). Финал дублирует Target — хранится
+        // целиком, чтобы точно восстановить активный индекс после перезагрузки мира.
+        if (!this.waypoints.isEmpty()) {
+            ListTag wpList = new ListTag();
+            for (Vec3 wp : this.waypoints) {
+                CompoundTag c = new CompoundTag();
+                c.putDouble("X", wp.x);
+                c.putDouble("Y", wp.y);
+                c.putDouble("Z", wp.z);
+                wpList.add(c);
+            }
+            tag.put("Waypoints", wpList);
+        }
+        tag.putInt("ActiveWaypoint", this.activeWaypoint);
+        tag.putBoolean("TerrainFollow", this.terrainFollow);
+        if (!Double.isNaN(this.prevLosYawDeg)) tag.putDouble("PrevLosYaw", this.prevLosYawDeg);
+        if (!Double.isNaN(this.prevRange)) tag.putDouble("PrevRange", this.prevRange);
+        if (!Double.isNaN(this.smoothedGroundY)) tag.putDouble("SmoothedGroundY", this.smoothedGroundY);
     }
 
     // ── GeckoLib ────────────────────────────────────────────────────
