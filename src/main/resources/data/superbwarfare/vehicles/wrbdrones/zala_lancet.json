@@ -1,8 +1,0 @@
-{
-  "ID": "wrbdrones:zala_lancet",
-  "Type": "Drone",
-  "EngineSound": "wrbdrones:fpv_drone_engine",
-  "EngineInfo": {
-    "EngineSoundVolume": 0.7
-  }
-}

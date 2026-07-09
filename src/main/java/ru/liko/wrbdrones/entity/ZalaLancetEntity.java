@@ -34,6 +34,7 @@ import ru.liko.wrbdrones.entity.flight.AircraftProfile;
 import ru.liko.wrbdrones.entity.flight.FixedWingDynamics;
 import ru.liko.wrbdrones.entity.flight.FlightDemand;
 import ru.liko.wrbdrones.registry.ModItems;
+import ru.liko.wrbdrones.util.ObbBlockCollision;
 
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec2;
@@ -531,6 +532,18 @@ public class ZalaLancetEntity extends AddonDroneEntity {
         if (startedTicks > SAFE_LAUNCH_TICKS
                 && (this.horizontalCollision || this.verticalCollision || this.onGround())) {
             explode();
+            return;
+        }
+
+        // Крыло задело блок: центральный AABB и raycast носа выше не видят препятствий,
+        // в которые входит только консоль крыла в крене. OBB из vehicle-data описывают
+        // всю модель — проверяем их против коллизий мира. updateOBB() обязателен: боксы
+        // обновлялись в baseTick ДО move(), без него проверка отстаёт на тик.
+        if (startedTicks > SAFE_LAUNCH_TICKS && !this.enableAABB()) {
+            this.updateOBB();
+            if (ObbBlockCollision.intersectsBlocks(this)) {
+                explode();
+            }
         }
     }
 

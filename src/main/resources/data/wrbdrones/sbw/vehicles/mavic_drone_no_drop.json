@@ -1,9 +1,7 @@
 {
-  "ID": "wrbdrones:fpv_drone",
   "Type": "Drone",
   "EngineSound": "wrbdrones:fpv_drone_engine",
   "EngineInfo": {
-    "EngineSoundVolume": 0.6
+    "EngineSoundVolume": 0.5
   }
 }
-

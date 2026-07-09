@@ -25,15 +25,19 @@ There is no test suite beyond the `gameTestServer` config; no lint task wired.
 
 ## Composite build with SuperbWarfare
 
-`settings.gradle.kts` `includeBuild`s `../../!libs and references/SuperbWarfare` (relative to repo root → `/home/liko/Разработка/NeoForge/!libs and references/SuperbWarfare`). The `SuperbWarfare/` folder *inside* this repo is a separate clone and is **not** what gets built — Gradle resolves `com.atsuishio:superbwarfare` to the sibling `!libs and references/SuperbWarfare` project. If you change SBW code, edit the sibling path; the in-tree copy is just a reference checkout.
+`settings.gradle.kts` `includeBuild`s `../SuperbWarfare-fork-PJM` (relative to repo root → `/home/liko/Разработка/NeoForge/!Curseforge Mods/SuperbWarfare-fork-PJM`). The `SuperbWarfare/` folder *inside* this repo is a separate clone and is **not** what gets built — Gradle resolves `com.atsuishio:superbwarfare` to the fork project. If you change SBW code, edit the fork path; the in-tree copy and `!libs and references/SuperbWarfare` are reference checkouts only.
 
-When reading SBW source for context, prefer `/home/liko/Разработка/NeoForge/!libs and references/SuperbWarfare/src/main/{java,kotlin}/`. SBW is partially Kotlin (e.g. `EntityFindUtil.kt`).
+When reading SBW source for context, prefer `/home/liko/Разработка/NeoForge/!Curseforge Mods/SuperbWarfare-fork-PJM/src/main/{java,kotlin}/` — the fork's APIs occasionally diverge from upstream (e.g. it adds `CustomRotate` to OBB data). SBW is partially Kotlin (e.g. `EntityFindUtil.kt`, `VehicleEntity.kt`).
 
 ## Architecture
 
 ### Drone hierarchy
 
-`AddonDroneEntity extends com.atsuishio.superbwarfare.entity.vehicle.DroneEntity`. All custom drones (`FpvDroneEntity`, `MavicDroneNoDropEntity`, `MavicDroneWithDropEntity`, `Shahed136Entity`, `ZalaLancetEntity`) extend `AddonDroneEntity` and reuse SBW's operator/session machinery while providing per-drone assets, sounds, and loadouts. Quadcopter drones use SBW's built-in `travel()` flight model; **Lancet overrides `travel()` to a no-op and runs its own fixed-wing physics** (see below).
+`AddonDroneEntity extends com.atsuishio.superbwarfare.entity.vehicle.DroneEntity`. Custom drones `FpvDroneEntity`, `MavicDroneNoDropEntity`, `MavicDroneWithDropEntity`, `ZalaLancetEntity` extend `AddonDroneEntity` and reuse SBW's operator/session machinery while providing per-drone assets, sounds, and loadouts. **`Shahed136Entity` is the exception: it extends vanilla `Entity` directly** (radio-controlled, no operator session) and implements SBW interfaces it needs by hand (e.g. `OBBEntity`). Quadcopter drones use SBW's built-in `travel()` flight model; **Lancet overrides `travel()` to a no-op and runs its own fixed-wing physics** (see below).
+
+### Vehicle data & full-model hitboxes (OBB)
+
+SBW vehicle data lives at `data/wrbdrones/sbw/vehicles/<entity>.json` (the fork's loader derives the id from the file path: `wrbdrones:zala_lancet` etc. — the legacy `data/superbwarfare/vehicles/...` path is dead). Lancet and Shahed define `"OBB"` boxes there (Size = half-extents, Position = offset from entity origin, optional `CustomRotate` degrees; coordinates mirror the geo model: `OBB = (−geoX, geoY, −geoZ)`). SBW rotates the boxes with yaw/pitch/roll every tick, routes projectile hits through them (`ProjectileUtilMixin`) and draws them on F3+B. Lancet gets all of it for free via `VehicleEntity`; Shahed implements `OBBEntity` manually (`getOBBs`/`updateObbs` in `Shahed136Entity`, debug render via our `client.ObbHitboxRenderMixin`). Wing-vs-block detonation for both planes goes through `util/ObbBlockCollision` (OBB against `level.getBlockCollisions`), called server-side after movement. See `docs/superpowers/specs/2026-07-09-drone-obb-collision-design.md`.
 
 `AddonDroneEntity#beginRemoteControl` forces the operator's view (`yRot=drone.yaw`, `xRot=0`) on teleport-in so the FPV camera starts aligned with the drone nose rather than inheriting the player's prior head angles. Original angles are saved in `controlSession` and restored on exit.
 

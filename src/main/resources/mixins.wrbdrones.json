@@ -21,7 +21,8 @@
     "client.ChannelAccessor",
     "client.LivingEntityRendererMixin",
     "client.EntityRendererMixin",
-    "client.DimensionTypeMixin"
+    "client.DimensionTypeMixin",
+    "client.ObbHitboxRenderMixin"
   ],
   "injectors": {
     "defaultRequire": 1

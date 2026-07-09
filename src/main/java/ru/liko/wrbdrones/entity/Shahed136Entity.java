@@ -1,8 +1,15 @@
 package ru.liko.wrbdrones.entity;
 
+import com.atsuishio.superbwarfare.data.vehicle.VehicleData;
+import com.atsuishio.superbwarfare.data.vehicle.subdata.OBBInfo;
+import com.atsuishio.superbwarfare.entity.OBBEntity;
 import com.atsuishio.superbwarfare.init.ModDamageTypes;
 import com.atsuishio.superbwarfare.tools.CustomExplosion;
+import com.atsuishio.superbwarfare.tools.OBB;
 import com.atsuishio.superbwarfare.tools.ParticleTool;
+import com.mojang.math.Axis;
+import org.joml.Quaterniond;
+import org.joml.Vector3d;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.nbt.CompoundTag;
@@ -42,6 +49,7 @@ import ru.liko.wrbdrones.entity.flight.TerrainFollower;
 import ru.liko.wrbdrones.entity.flight.WaypointRoute;
 import ru.liko.wrbdrones.item.RadioItem;
 import ru.liko.wrbdrones.network.ShahedExplodePacket;
+import ru.liko.wrbdrones.util.ObbBlockCollision;
 import ru.liko.wrbdrones.registry.ModItems;
 import ru.liko.wrbdrones.registry.ModSounds;
 import software.bernie.geckolib.animatable.GeoEntity;
@@ -55,7 +63,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-public class Shahed136Entity extends Entity implements GeoEntity {
+public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
 
     // ── Synched Data ────────────────────────────────────────────────
 
@@ -378,6 +386,8 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         if (!this.level().isClientSide() && this.getHealth() > 0.0f) {
             this.setHealth(this.getHealth() - amount);
             if (this.getHealth() <= 0.0f) {
+                net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(
+                        new ru.liko.wrbdrones.api.event.ShahedShotDownEvent(this, source));
                 explode();
             }
             return true;
@@ -408,6 +418,12 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         }
 
         if (this.isRemoved()) return;
+
+        // Боксы полного покрытия следуют за корпусом на обеих сторонах:
+        // сервер — попадания снарядов (мишины SBW), клиент — F3+B и прицельные проверки.
+        if (!this.enableAABB()) {
+            updateObbs();
+        }
 
         if (this.horizontalCollision || this.verticalCollision || (this.onGround() && isLaunched())) {
             if (!this.level().isClientSide() && isLaunched() && launchTicks > FAILSAFE_DELAY_TICKS) {
@@ -476,7 +492,92 @@ public class Shahed136Entity extends Entity implements GeoEntity {
         }
     }
 
+    // ── OBB-хитбоксы: полное покрытие модели (фюзеляж, крыло, шайбы) ─
+
+    /**
+     * Шахед наследует {@link Entity} напрямую, а не SBW {@code VehicleEntity},
+     * поэтому data-driven OBB-механика SBW сюда сама не попадает. Реализуем
+     * {@link OBBEntity} вручную: список боксов читается из vehicle-data
+     * ({@code data/wrbdrones/sbw/vehicles/shahed136.json}), а позиция/поворот
+     * обновляются по yaw/pitch/roll корпуса — той же композицией
+     * {@code Y(-yaw)·X(pitch)·Z(roll)}, которой Shahed136Renderer вращает модель.
+     * Мишины SBW (ProjectileUtilMixin, LevelMixin, отладка F3+B) подхватывают
+     * любой {@link OBBEntity}, так что попадания по крыльям работают как у машин.
+     */
+    private List<OBBInfo> obbInfos = List.of();
+    /** Собственные экземпляры OBB: кэш внутри {@link OBBInfo} общий на весь тип, его не трогаем. */
+    private List<OBB> obbs = List.of();
+
+    @Override
+    public @NotNull List<OBB> getOBBs() {
+        if (this.obbs.isEmpty()) {
+            initObbs();
+        }
+        return this.obbs;
+    }
+
+    @Override
+    public boolean enableAABB() {
+        return OBBEntity.DefaultImpls.enableAABB(this);
+    }
+
+    @Override
+    public boolean isInObb(@NotNull BlockPos pos, @NotNull Vec3 vec3) {
+        return OBBEntity.DefaultImpls.isInObb(this, pos, vec3);
+    }
+
+    @Override
+    public boolean isInObb(@NotNull Entity entity, @NotNull Vec3 vec3) {
+        return OBBEntity.DefaultImpls.isInObb(this, entity, vec3);
+    }
+
+    private void initObbs() {
+        List<OBBInfo> infos = VehicleData.getDefault(this.getType()).getObb();
+        if (infos.isEmpty()) {
+            return; // данные ещё не загружены/не синхронизированы — попробуем в следующий getOBBs()
+        }
+        List<OBBInfo> infoList = new ArrayList<>(infos);
+        List<OBB> list = new ArrayList<>(infoList.size());
+        for (OBBInfo info : infoList) {
+            list.add(new OBB(new Vector3d(), OBB.vec3ToVector3d(info.getSize()), new Quaterniond(), info.getPart()));
+        }
+        this.obbInfos = infoList;
+        this.obbs = list;
+        updateObbs();
+    }
+
+    /** Аналог {@code VehicleEntity.updateOBB()}: сажает боксы на текущую позицию и ориентацию корпуса. */
+    private void updateObbs() {
+        Quaterniond bodyRot = new Quaterniond(Axis.YP.rotationDegrees(-this.getYRot()))
+                .mul(new Quaterniond(Axis.XP.rotationDegrees(this.getXRot())))
+                .mul(new Quaterniond(Axis.ZP.rotationDegrees(this.getRoll())));
+        Vec3 pos = this.position();
+        for (int i = 0; i < this.obbs.size(); i++) {
+            OBBInfo info = this.obbInfos.get(i);
+            OBB obb = this.obbs.get(i);
+            Vector3d offset = OBB.vec3ToVector3d(info.getPosition());
+            bodyRot.transform(offset);
+            obb.center.set(pos.x + offset.x, pos.y + offset.y, pos.z + offset.z);
+            Quaterniond boxRot = new Quaterniond(bodyRot);
+            Vec3 extra = info.getCustomRotate();
+            boxRot.mul(new Quaterniond(Axis.YP.rotationDegrees((float) extra.y)));
+            boxRot.mul(new Quaterniond(Axis.XP.rotationDegrees((float) extra.x)));
+            boxRot.mul(new Quaterniond(Axis.ZP.rotationDegrees((float) extra.z)));
+            obb.updateRotation(boxRot);
+        }
+    }
+
     private boolean checkBlockIntersection() {
+        // OBB из vehicle-data покрывают всю модель (фюзеляж, дельта-крыло, шайбы) —
+        // проверяем их против коллизий мира: крыло о стену в крене засчитывается,
+        // пролёт рядом — нет. updateObbs() обязателен: вызов идёт сразу после
+        // updateFlight(), боксы должны сесть на новую позицию корпуса.
+        if (!this.enableAABB()) {
+            updateObbs();
+            return ObbBlockCollision.intersectsBlocks(this);
+        }
+
+        // Фолбэк без OBB-данных: любой коллизионный блок в раздутом ванильном AABB.
         AABB box = this.getBoundingBox().inflate(BLOCK_CHECK_INFLATE);
         for (BlockPos pos : BlockPos.betweenClosed(
                 Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),
