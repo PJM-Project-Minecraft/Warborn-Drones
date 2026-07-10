@@ -184,6 +184,9 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
 
     @Nullable
     private List<ChunkPos> loadedChunks = null;
+    /** Чанк, вокруг которого последний раз строилась 3x3 зона. null = зона не была инициализирована. */
+    @Nullable
+    private ChunkPos loadedCenter = null;
 
     // ── Constructor & Base Overrides ────────────────────────────────
 
@@ -914,17 +917,26 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
         double distSqr = this.position().distanceToSqr(targetPos);
 
         if (distSqr <= PROXIMITY_CONTACT_RADIUS * PROXIMITY_CONTACT_RADIUS) {
+            postImpact(targetPos);
             explode();
             return;
         }
 
         if (distSqr <= PROXIMITY_ARM_RADIUS * PROXIMITY_ARM_RADIUS
                 && prevTargetDistSqr >= 0.0 && distSqr > prevTargetDistSqr) {
+            postImpact(targetPos);
             explode();
             return;
         }
 
         prevTargetDistSqr = distSqr;
+    }
+
+    /** Сигнал «дрон достиг отмеченной цели и подрывается» — для внешних мод (налёты, учёт). */
+    private void postImpact(Vec3 targetPos) {
+        if (this.level().isClientSide()) return;
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.post(
+                new ru.liko.wrbdrones.api.event.ShahedImpactEvent(this, targetPos, this.position()));
     }
 
     // ── Particles & Sounds ──────────────────────────────────────────
@@ -978,30 +990,32 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
 
         ChunkPos currentChunk = this.chunkPosition();
 
-        boolean needsUpdate = loadedChunks == null
-                || loadedChunks.isEmpty()
-                || !loadedChunks.contains(currentChunk);
+        // Обновляем зону при КАЖДОМ пересечении чанковой границы (не только когда дрон
+        // выходит за пределы loadedChunks). Без этого дрон может проехать через ahead-чанк
+        // (входит в loadedChunks → обновление не срабатывает), а следующий за ним чанк
+        // окажется незагруженным в момент перехода — дрон фризится на тик.
+        // С loadedCenter обновление идёт на каждый переход: новый чанк всегда уже в 3x3
+        // прежнего центра, поэтому дрон никогда не заходит в незагруженный чанк.
+        if (loadedCenter != null && loadedCenter.equals(currentChunk)) return;
 
-        if (needsUpdate) {
-            unloadChunks(serverLevel);
-
-            loadedChunks = new ArrayList<>();
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    ChunkPos cp = new ChunkPos(currentChunk.x + dx, currentChunk.z + dz);
-                    serverLevel.setChunkForced(cp.x, cp.z, true);
-                    loadedChunks.add(cp);
-                }
+        unloadChunks(serverLevel);
+        loadedCenter = currentChunk;
+        loadedChunks = new ArrayList<>();
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dz = -1; dz <= 1; dz++) {
+                ChunkPos cp = new ChunkPos(currentChunk.x + dx, currentChunk.z + dz);
+                serverLevel.setChunkForced(cp.x, cp.z, true);
+                loadedChunks.add(cp);
             }
+        }
 
-            Vec3 motion = this.getDeltaMovement();
-            if (motion.lengthSqr() > 0.01) {
-                Vec3 ahead = this.position().add(motion.normalize().scale(CHUNK_PRELOAD_DISTANCE));
-                ChunkPos aheadChunk = new ChunkPos(Mth.floor(ahead.x) >> 4, Mth.floor(ahead.z) >> 4);
-                if (!loadedChunks.contains(aheadChunk)) {
-                    serverLevel.setChunkForced(aheadChunk.x, aheadChunk.z, true);
-                    loadedChunks.add(aheadChunk);
-                }
+        Vec3 motion = this.getDeltaMovement();
+        if (motion.lengthSqr() > 0.01) {
+            Vec3 ahead = this.position().add(motion.normalize().scale(CHUNK_PRELOAD_DISTANCE));
+            ChunkPos aheadChunk = new ChunkPos(Mth.floor(ahead.x) >> 4, Mth.floor(ahead.z) >> 4);
+            if (!loadedChunks.contains(aheadChunk)) {
+                serverLevel.setChunkForced(aheadChunk.x, aheadChunk.z, true);
+                loadedChunks.add(aheadChunk);
             }
         }
     }
@@ -1013,6 +1027,7 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
             }
             loadedChunks = null;
         }
+        loadedCenter = null;
     }
 
     private void checkMaxDistance() {
