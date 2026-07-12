@@ -10,7 +10,6 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import ru.liko.wrbdrones.Wrbdrones;
 import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import ru.liko.wrbdrones.util.PilotViewAnchors;
-import ru.liko.wrbdrones.util.PilotChunkTicket;
 
 /**
  * Обработчик входа игрока в мир.
@@ -47,10 +46,9 @@ public class PlayerLoginHandler {
             return;
         }
         
-        // Игрок вышел во время управления — снимаем self-chunk ресурсы:
-        // якорь вида и форс-загрузку домашнего чанка.
+        // Игрок вышел во время управления — снимаем якорь вида. Region-ticket чанков
+        // дрона снимет DroneChunkTickHandler.releaseAllExcept, когда игрок исчезнет.
         PilotViewAnchors.clearAnchor(player.getUUID());
-        PilotChunkTicket.release(player);
     }
 
     /**

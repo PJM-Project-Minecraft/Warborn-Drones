@@ -676,8 +676,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
         }
 
         // Запоминаем ДО создания сессии: является ли этот вызов первым вхождением
-        // в управление. Нужно для предотвращения утечки PilotChunkTicket при
-        // повторном вызове beginRemoteControl для того же игрока.
+        // в управление. Нужно, чтобы ставить якорь вида только один раз за сессию.
         boolean freshSession = (controlSession == null);
 
         if (controlSession == null) {
@@ -692,10 +691,12 @@ public abstract class AddonDroneEntity extends DroneEntity {
         wrbdrones$controllerUuid = player.getUUID();
 
         if (!player.level().isClientSide() && this.level() instanceof ServerLevel) {
-            // Self-chunk: игрок остаётся на месте, дрон сам центрирует прогрузку чанков.
-            // hold/setAnchor — только при свежей сессии, иначе держанный чанк утечёт.
+            // Тело пилота остаётся на месте со своим обычным player-ticket'ом (домашние
+            // чанки грузятся сами). Дрон центрирует ПОТОК чанков/сущностей пилота на себя
+            // через якорь (два player-local миксина), а собственные чанки вокруг дрона
+            // грузит независимый DroneChunkLoader (region-ticket, драйвится серверным
+            // тиком). setAnchor — только при свежей сессии.
             if (freshSession) {
-                ru.liko.wrbdrones.util.PilotChunkTicket.hold(player);           // держим домашний чанк
                 ru.liko.wrbdrones.util.PilotViewAnchors.setAnchor(player.getUUID(), this); // центр обзора -> дрон
             }
         }
@@ -704,12 +705,9 @@ public abstract class AddonDroneEntity extends DroneEntity {
     }
 
     /**
-     * Завершает удаленное управление дроном.
-     * <p>
-     * Self-chunk режим (FPV, Mavic, Lancet): игрок не перемещался — снимает якорь вида
-     * ({@link ru.liko.wrbdrones.util.PilotViewAnchors}) и тикет удержания домашнего чанка
-     * ({@link ru.liko.wrbdrones.util.PilotChunkTicket}), затем восстанавливает углы
-     * взгляда без какого-либо телепорта.
+     * Завершает удаленное управление дроном. Игрок не перемещался — снимает якорь вида
+     * ({@link ru.liko.wrbdrones.util.PilotViewAnchors}), после чего поток чанков/сущностей
+     * пилота сам ре-центрируется на его тело, и восстанавливает углы взгляда без телепорта.
      */
     public void endRemoteControl(final ServerPlayer player) {
         if (controlSession == null) {
@@ -723,9 +721,10 @@ public abstract class AddonDroneEntity extends DroneEntity {
 
         wrbdrones$endingControl = true;
         try {
-            // Игрок не перемещался — снимаем режим self-chunk.
+            // Снимаем якорь центра обзора — со следующего тика ChunkMap.tick() ре-центрирует
+            // поток чанков/сущностей пилота обратно на его тело (см. миксины). Тело всё
+            // время держало свой player-ticket, поэтому домашние чанки уже загружены.
             ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(player.getUUID());
-            ru.liko.wrbdrones.util.PilotChunkTicket.release(player);
             // Вернуть углы взгляда оператора (тело не двигалось, но камера была на дроне).
             var session = controlSession;
             if (session != null) {
@@ -763,10 +762,9 @@ public abstract class AddonDroneEntity extends DroneEntity {
         if (sp != null) {
             endRemoteControl(sp);
         } else {
-            // Игрок не найден (вышел?) — принудительно снимаем self-chunk ресурсы:
-            // якорь вида и форс-загрузку домашнего чанка.
+            // Игрок не найден (вышел?) — снимаем якорь вида. Region-ticket чанков дрона
+            // снимет DroneChunkTickHandler.releaseAllExcept, когда дрон исчезнет из активных.
             ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(wrbdrones$controllerUuid);
-            ru.liko.wrbdrones.util.PilotChunkTicket.release(wrbdrones$controllerUuid);
         }
     }
 
@@ -844,9 +842,8 @@ public abstract class AddonDroneEntity extends DroneEntity {
                 if (operator != null) {
                     endRemoteControl(operator);
                 } else {
-                    // Крайний случай: игрок не найден — снимаем self-chunk ресурсы вручную.
+                    // Крайний случай: игрок не найден — снимаем якорь вида вручную.
                     ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(wrbdrones$controllerUuid);
-                    ru.liko.wrbdrones.util.PilotChunkTicket.release(wrbdrones$controllerUuid);
                     controlSession = null;
                     wrbdrones$controllerUuid = null;
                 }
@@ -957,11 +954,11 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     if (wrbdrones$usesSelfChunkLoading()
                             && controlSession != null
                             && wrbdrones$controllerUuid != null) {
-                        // Пилот стоит неподвижно — handleMovePlayer никогда не вызывает
-                        // getChunkSource().move для него, поэтому ChunkMap.move и редирект
-                        // ChunkMapPilotAnchorMixin никогда не сработают сами по себе. Вызываем
-                        // явно каждый тик, чтобы стриминг чанков следовал за движущимся FPV-дроном.
-                        serverLevel.getChunkSource().move(serverPlayer);
+                        // Чанки вокруг дрона грузит DroneChunkLoader (region-ticket, драйвится
+                        // серверным тиком), а поток чанков/сущностей пилота центрирует на дрон
+                        // якорь через два player-local миксина. Player-ticket пилота НЕ трогаем —
+                        // раньше здесь был getChunkSource().move(player), подменявший секцию
+                        // игрока дроном, и он-то ломал общий учёт DistanceManager у всех игроков.
 
                         // Ускоряем отправку чанков клиенту, чтобы быстрый FPV-дрон не обгонял
                         // загрузку. Снимается в endRemoteControl.

@@ -79,6 +79,7 @@ public class ServerConfig {
     public static ModConfigSpec.BooleanValue CHUNK_SEND_BOOST_ENABLED;
     public static ModConfigSpec.DoubleValue CHUNK_SEND_BOOST_RATE;
     public static ModConfigSpec.IntValue CHUNK_SEND_BOOST_BATCHES;
+    public static ModConfigSpec.IntValue DRONE_CHUNK_RADIUS;
 
     public static void init(ModConfigSpec.Builder builder) {
         builder.push("fpv_drone");
@@ -296,6 +297,15 @@ public class ServerConfig {
                 "Max unacknowledged chunk batches in flight for the pilot (vanilla default 10).",
                 "Higher helps on high-latency connections at the cost of more bandwidth/memory.");
         CHUNK_SEND_BOOST_BATCHES = builder.defineInRange("boost_max_batches", 16, 1, 64);
+
+        builder.comment(
+                "Safety cap (in chunks) for how far a drone keeps chunks loaded around itself via its",
+                "own region ticket. The ACTUAL radius follows the server view-distance so the pilot",
+                "loads exactly as many chunks around the drone as a normal player does (view-distance",
+                "20 => 20 chunks), capped by this value. Does NOT touch player chunk-ticket accounting,",
+                "so it cannot corrupt chunk loading for other players. Lower this only if a fast drone",
+                "at high view-distance strains chunk generation.");
+        DRONE_CHUNK_RADIUS = builder.defineInRange("drone_max_load_radius", 32, 2, 32);
 
         builder.pop();
     }

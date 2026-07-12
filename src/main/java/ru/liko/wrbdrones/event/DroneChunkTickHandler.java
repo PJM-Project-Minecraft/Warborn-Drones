@@ -7,7 +7,6 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -18,14 +17,24 @@ import ru.liko.wrbdrones.entity.AddonDroneEntity;
 import ru.liko.wrbdrones.entity.MavicDroneNoDropEntity;
 import ru.liko.wrbdrones.entity.MavicDroneWithDropEntity;
 import ru.liko.wrbdrones.entity.ZalaLancetEntity;
+import ru.liko.wrbdrones.util.DroneChunkLoader;
 import ru.liko.wrbdrones.util.SignalCalculator;
 
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * Обработчик тика сервера для загрузки чанков дронов.
- * Проверяет мониторы у игроков и загружает чанки связанных дронов,
- * чтобы дроны могли тикать даже когда находятся далеко от игрока.
+ * Каждый серверный тик держит загруженными чанки дронов, которых пилотируют или на
+ * которых наведён привязанный монитор в руке, чтобы дрон тикал и стримился пилоту
+ * вдали от игроков.
+ *
+ * <p>Загрузку делает {@link DroneChunkLoader} собственным region-ticket'ом вокруг
+ * дрона — НЕ трогая player-ticket и учёт игроков в {@code DistanceManager} (прежний
+ * подход с подменой секции игрока рассинхронизировал общий учёт и ломал прогрузку у
+ * ВСЕХ). Каждый тик собираем множество «активных» дронов и снимаем тикеты у всех
+ * остальных ({@link DroneChunkLoader#releaseAllExcept}) — единая точка снятия для всех
+ * случаев: монитор убран, игрок вышел, дрон удалён.</p>
  */
 @EventBusSubscriber(modid = Wrbdrones.MODID, bus = EventBusSubscriber.Bus.GAME)
 public class DroneChunkTickHandler {
@@ -39,12 +48,23 @@ public class DroneChunkTickHandler {
                 && signalCheckTickCounter >= ServerConfig.SIGNAL_SERVER_CHECK_INTERVAL_TICKS.get();
         if (checkSignal) signalCheckTickCounter = 0;
 
+        // Грузим вокруг дрона столько же чанков, сколько игрок грузит вокруг себя.
+        int viewDistance = event.getServer().getPlayerList().getViewDistance();
+
+        Set<UUID> activeDrones = new HashSet<>();
         for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
-            AddonDroneEntity drone = checkPlayerMonitor(player);
-            if (checkSignal && drone != null) {
+            AddonDroneEntity drone = findLinkedDrone(player);
+            if (drone == null) {
+                continue;
+            }
+            DroneChunkLoader.keepLoaded(drone, viewDistance);
+            activeDrones.add(drone.getUUID());
+            if (checkSignal) {
                 checkServerSignalCutoff(player, drone);
             }
         }
+        // Дрон, которого в этот тик никто не держит, теряет тикет и выгружается.
+        DroneChunkLoader.releaseAllExcept(activeDrones);
     }
 
     /**
@@ -86,59 +106,36 @@ public class DroneChunkTickHandler {
         }
     }
 
-    private static AddonDroneEntity checkPlayerMonitor(ServerPlayer player) {
-        // Проверяем монитор в главной руке
+    /**
+     * Возвращает дрон, который игрок сейчас держит загруженным: либо активно пилотирует
+     * (есть якорь вида), либо в главной руке привязанный к дрону монитор. Иначе {@code null}.
+     * Работой с чанками здесь не занимаемся — только идентификация дрона.
+     */
+    private static AddonDroneEntity findLinkedDrone(ServerPlayer player) {
+        // Активное пилотирование — дрон известен напрямую по якорю (ссылка на сущность).
+        Entity anchor = ru.liko.wrbdrones.util.PilotViewAnchors.getAnchorDrone(player.getUUID());
+        if (anchor instanceof AddonDroneEntity anchorDrone) {
+            return anchorDrone;
+        }
+
+        // Иначе — монитор в главной руке, привязанный к дрону.
         ItemStack mainHand = player.getMainHandItem();
         if (!mainHand.is(ModItems.MONITOR.get())) {
             return null;
         }
-
         var tag = NBTTool.getTag(mainHand);
         if (!tag.getBoolean(MonitorItem.LINKED)) {
             return null;
         }
-
         String linkedDroneId = tag.getString(MonitorItem.LINKED_DRONE);
         if (linkedDroneId == null || linkedDroneId.isEmpty() || linkedDroneId.equals("none")) {
             return null;
         }
-
-        // Принудительно загружаем чанк дрона по сохранённой позиции
-        if (tag.contains("PosX") && tag.contains("PosZ")) {
-            double posX = tag.getDouble("PosX");
-            double posZ = tag.getDouble("PosZ");
-
-            ServerLevel level = player.serverLevel();
-            int chunkX = (int) Math.floor(posX) >> 4;
-            int chunkZ = (int) Math.floor(posZ) >> 4;
-
-            // Принудительно загружаем чанк (это синхронная операция)
-            level.getChunk(chunkX, chunkZ);
-
-            // Также загружаем соседние чанки для надёжности
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dz = -1; dz <= 1; dz++) {
-                    level.getChunk(chunkX + dx, chunkZ + dz);
-                }
-            }
-
-            // Добавляем тикет чтобы чанки оставались загруженными
-            try {
-                // ChunkLoadManager.ensureChunksLoaded(level, entityId, new ChunkPos(chunkX,
-                // chunkZ));
-            } catch (IllegalArgumentException ignored) {
-            }
-        }
-
-        // Теперь ищем дрон - чанки уже загружены
         try {
             UUID droneUuid = UUID.fromString(linkedDroneId);
-
             for (ServerLevel level : player.getServer().getAllLevels()) {
                 Entity entity = level.getEntity(droneUuid);
                 if (entity instanceof AddonDroneEntity drone) {
-                    // ChunkLoadManager.ensureChunksLoaded(level, drone.getId(),
-                    // drone.chunkPosition());
                     return drone;
                 }
             }
@@ -151,11 +148,10 @@ public class DroneChunkTickHandler {
     public static void onPlayerLogout(
             net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.getEntity() instanceof ServerPlayer serverPlayer) {
-            // Если игрок управлял дроном, очищаем self-chunk ресурсы:
-            // якорь вида и форс-загрузку домашнего чанка.
+            // Игрок мог управлять дроном: снимаем якорь вида и форсированную отправку чанков.
+            // Region-ticket чанков дрона снимет releaseAllExcept на следующем тике (игрока
+            // больше нет в списке → дрон не попадёт в активные).
             ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(serverPlayer.getUUID());
-            ru.liko.wrbdrones.util.PilotChunkTicket.release(serverPlayer);
-            // Страховка: снимаем форсированную отправку чанков, если игрок вышел в полёте
             ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), false);
         }
     }
