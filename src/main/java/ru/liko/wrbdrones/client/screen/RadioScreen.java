@@ -1,22 +1,17 @@
 package ru.liko.wrbdrones.client.screen;
 
-import ru.liko.wrbdrones.network.LaunchShahedPacket;
-
-import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.api.distmarker.OnlyIn;
-import org.jetbrains.annotations.NotNull;
-import ru.liko.wrbdrones.Wrbdrones;
 import net.neoforged.neoforge.network.PacketDistributor;
-import ru.liko.wrbdrones.network.ModNetworking;
+import org.jetbrains.annotations.NotNull;
+import ru.liko.wrbdrones.network.LaunchShahedPacket;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,21 +19,87 @@ import java.util.List;
 @OnlyIn(Dist.CLIENT)
 public class RadioScreen extends Screen {
 
+    // ── Размеры окна ─────────────────────────────────────────────────────────
     private static final int GUI_WIDTH = 300;
-    private static final int GUI_HEIGHT = 324;
 
-    // Minimalist Colors
-    private static final int COL_BACKGROUND = 0xF5101010;
-    private static final int COL_BORDER = 0xFF404040;
-    private static final int COL_TEXT_HEADER = 0xFFFFFFFF;
-    private static final int COL_TEXT_LABEL = 0xFFAAAAAA;
-    private static final int COL_TEXT_VALUE = 0xFF55FF55;
-    private static final int COL_ACCENT = 0xFF333333;
-    private static final int COL_ACCENT_HOVER = 0xFF505050;
-    // Панели «планшета»: чуть светлее фона, тонкий бордер, заголовок-вкладка сверху.
-    private static final int COL_PANEL = 0xFF181818;
-    private static final int COL_PANEL_HEADER = 0xFF222222;
-    private static final int COL_PANEL_BORDER = 0xFF2E2E2E;
+    // ── Единый грид (все отступы кратны, чтобы ничего не «косило») ────────────
+    private static final int PAD = 8;          // внешний отступ
+    private static final int GAP = 6;          // зазор между панелями/рядами
+    private static final int HEADER_H = 22;     // строка заголовка окна
+    private static final int PANEL_HDR = 13;    // высота вкладки-заголовка панели
+    private static final int FIELD_H = 16;
+    private static final int BTN_H = 16;
+    private static final int LABEL_H = 10;       // место под лейбл над полем
+
+    private static final int PANEL_W = (GUI_WIDTH - 2 * PAD - GAP) / 2;   // 139
+    private static final int PANEL_TOP_H = 72;
+    private static final int TOG_H = 18;
+    private static final int ROUTE_W = GUI_WIDTH - 2 * PAD;               // 284
+    private static final int ROUTE_H = 114;
+
+    // Y-смещения от guiTop
+    private static final int PANEL_TOP_Y = HEADER_H + GAP;                       // 28
+    private static final int TOG_Y = PANEL_TOP_Y + PANEL_TOP_H + GAP;            // 106
+    private static final int ROUTE_Y = TOG_Y + TOG_H + GAP;                      // 130
+    private static final int STATUS_Y = ROUTE_Y + ROUTE_H + 8;                   // 252
+    private static final int LAUNCH_Y = STATUS_Y + 12;                          // 264
+    private static final int GUI_HEIGHT = LAUNCH_Y + BTN_H + 2 + PAD;            // 292
+
+    // Ряды внутри верхних панелей
+    private static final int TP_CONTENT = PANEL_TOP_Y + PANEL_HDR + 4;           // 45
+    private static final int TP_FLD_Y = TP_CONTENT + LABEL_H;                    // 55
+    private static final int TP_ROW2_Y = TP_FLD_Y + FIELD_H + GAP;              // 77
+
+    // Ряды внутри нижней панели «маршрут»
+    private static final int RT_CONTENT = ROUTE_Y + PANEL_HDR + 4;              // 147
+    private static final int RT_FLD_Y = RT_CONTENT + LABEL_H;                    // 157
+    private static final int RT_BTN_Y = RT_FLD_Y + FIELD_H + GAP;               // 179
+    private static final int RT_LIST_Y = RT_BTN_Y + BTN_H + 6;                  // 201
+
+    // X-смещения от guiLeft
+    private static final int LEFT_X = PAD;                                       // 8
+    private static final int RIGHT_X = PAD + PANEL_W + GAP;                      // 153
+    private static final int ROUTE_X = PAD;                                      // 8
+
+    // Координатные поля X/Y/Z (и WX/WY/WZ) — 3 поля, центрируются в своей панели
+    private static final int FW = 40;
+    private static final int FG = 5;
+    private static final int COORD_TRIPLET_W = FW * 3 + FG * 2;                  // 130
+
+    // Правая панель «параметры»: лейбл | поле | −− | ++
+    private static final int A_LBL_X = RIGHT_X + 8;
+    private static final int A_FLD_X = RIGHT_X + 36;
+    private static final int A_FLD_W = 40;
+    private static final int A_BTN_W = 22;
+    private static final int A_BTN1_X = A_FLD_X + A_FLD_W + 6;
+    private static final int A_BTN2_X = A_BTN1_X + A_BTN_W + 3;
+
+    // Кнопки маршрута: 4 в ряд на всю ширину панели
+    private static final int WP_BW = 66;
+    private static final int WP_BG = 6;
+    private static final int WP_B0 = ROUTE_X + (ROUTE_W - (WP_BW * 4 + WP_BG * 3)) / 2;
+
+    // ── Палитра: тёмный тактический «планшет», единый янтарный акцент ─────────
+    private static final int COL_BACKGROUND    = 0xF00D0F12;
+    private static final int COL_BORDER        = 0xFF3A424C;
+    private static final int COL_HEADER_BAR    = 0xFF14171B;
+    private static final int COL_ACCENT        = 0xFFE0A030; // янтарь
+    private static final int COL_TEXT_HEADER   = 0xFFECEFF2;
+    private static final int COL_TEXT_LABEL    = 0xFF828A94;
+    private static final int COL_TEXT_VALUE    = 0xFFE0A030; // значения полей — янтарь
+    private static final int COL_PANEL         = 0xFF15181D;
+    private static final int COL_PANEL_HEADER  = 0xFF1E232A;
+    private static final int COL_PANEL_BORDER  = 0xFF2C333C;
+    private static final int COL_BTN           = 0xFF232830;
+    private static final int COL_BTN_HOVER     = 0xFF2F3640;
+    private static final int COL_BTN_DISABLED  = 0xFF181B1F;
+    private static final int COL_BTN_TEXT      = 0xFFD2D7DD;
+    private static final int COL_BTN_TEXT_DIS  = 0xFF565C65;
+    private static final int COL_WARNING       = 0xFFE0574B;
+    private static final int COL_LAUNCH_BG     = 0xFF243A26;
+    private static final int COL_LAUNCH_HOVER  = 0xFF2E4C31;
+    private static final int COL_LAUNCH_BORDER = 0xFF5FD46A;
+    private static final int COL_LAUNCH_TEXT   = 0xFF7FE889;
 
     private final int shahedEntityId;
     private final int initialX;
@@ -76,13 +137,6 @@ public class RadioScreen extends Screen {
     private Button clearWaypointsButton;
     private Button removeLastWaypointButton;
 
-    private Button altMinus50;
-    private Button altMinus10;
-    private Button altPlus10;
-    private Button altPlus50;
-    private Button speedMinus;
-    private Button speedPlus;
-
     public RadioScreen(int shahedEntityId, int initialX, int initialY, int initialZ, int droneX, int droneY,
             int droneZ, boolean terrainFollow, List<int[]> waypoints,
             double minSpeed, double maxSpeed, double minAltitude, double maxAltitude,
@@ -113,126 +167,99 @@ public class RadioScreen extends Screen {
         int guiLeft = (this.width - GUI_WIDTH) / 2;
         int guiTop = (this.height - GUI_HEIGHT) / 2;
 
-        int fieldHeight = 16;
-
-        // ═══ ЛЕВАЯ ПАНЕЛЬ: ЦЕЛЬ ═══  (guiLeft+8 .. guiLeft+150, высота 78)
-        int leftX = guiLeft + 8;
-        int leftW = 142;
-        int row1Y = guiTop + 54; // первый ряд внутри панели (вкладка-заголовок 32, +22)
-        int row2Y = guiTop + 76;
-
-        // X / Y / Z — 3 поля по 40, gap 5
-        int fw = 40;
-        int fg = 5;
-        int fx0 = leftX + 5; // 13
-        this.xField = mkCoord(fx0, row1Y, fw, fieldHeight, "X", String.valueOf(initialX));
+        // ═══ ЛЕВАЯ ПАНЕЛЬ: ЦЕЛЬ — X/Y/Z + «игрок»/«взгляд» ═══
+        int coordX0 = guiLeft + LEFT_X + (PANEL_W - COORD_TRIPLET_W) / 2;
+        int fldY = guiTop + TP_FLD_Y;
+        this.xField = mkCoord(coordX0, fldY, FW, FIELD_H, "X", String.valueOf(initialX));
+        this.yField = mkCoord(coordX0 + (FW + FG), fldY, FW, FIELD_H, "Y", String.valueOf(initialY));
+        this.zField = mkCoord(coordX0 + (FW + FG) * 2, fldY, FW, FIELD_H, "Z", String.valueOf(initialZ));
         this.addRenderableWidget(this.xField);
-        this.yField = mkCoord(fx0 + (fw + fg), row1Y, fw, fieldHeight, "Y", String.valueOf(initialY));
         this.addRenderableWidget(this.yField);
-        this.zField = mkCoord(fx0 + (fw + fg) * 2, row1Y, fw, fieldHeight, "Z", String.valueOf(initialZ));
         this.addRenderableWidget(this.zField);
 
-        // Игрок / Взгляд — 2 кнопки по 65, gap 5
-        int bw = 65;
-        int bg = 5;
-        int bx0 = leftX + 5;
-        this.addRenderableWidget(new MinimalButton(bx0, row2Y, bw, fieldHeight,
+        int lbw = (PANEL_W - 12 - GAP) / 2;    // две кнопки на всю ширину панели
+        int lbx = guiLeft + LEFT_X + 6;
+        int row2Y = guiTop + TP_ROW2_Y;
+        this.addRenderableWidget(new MinimalButton(lbx, row2Y, lbw, BTN_H,
                 Component.translatable("screen.wrbdrones.radio.player"), b -> useCurrentPosition()));
-        this.addRenderableWidget(new MinimalButton(bx0 + bw + bg, row2Y, bw, fieldHeight,
+        this.addRenderableWidget(new MinimalButton(lbx + lbw + GAP, row2Y, lbw, BTN_H,
                 Component.translatable("screen.wrbdrones.radio.look"), b -> useLookPosition()));
 
-        // ═══ ПРАВАЯ ПАНЕЛЬ: ПАРАМЕТРЫ ═══  (guiLeft+150 .. guiLeft+292, высота 78)
-        int rightX = guiLeft + 150;
-        int rightW = 142;
-        int pfX = rightX + 31; // 180 — поле (слева лейбл «ВЫС»/«СКР»)
-        int pfw = 36;
-        int pbw = 28;
-        int pbg = 2;
-        int pb0 = pfX + pfw + pbg; // 218
-
-        // Высота: лейбл + поле + --/++
-        this.altitudeField = new EditBox(this.font, pfX, row1Y, pfw, fieldHeight, Component.literal("ALT"));
-        this.altitudeField.setMaxLength(4);
-        this.altitudeField.setValue(String.valueOf((int) Mth.clamp(80, minAltitude,
-                maxAltitude)));
-        this.altitudeField.setFilter(this::isValidInt);
-        this.altitudeField.setTextColor(COL_TEXT_VALUE);
-        this.altitudeField.setBordered(true);
+        // ═══ ПРАВАЯ ПАНЕЛЬ: ПАРАМЕТРЫ — высота / скорость ═══
+        this.altitudeField = mkValue(guiLeft + A_FLD_X, fldY, A_FLD_W, FIELD_H, "ALT",
+                String.valueOf((int) Mth.clamp(80, minAltitude, maxAltitude)), this::isValidInt);
         this.addRenderableWidget(this.altitudeField);
-        this.altMinus50 = new MinimalButton(pb0, row1Y, pbw, fieldHeight, Component.literal("--"),
-                b -> adjustAltitude(-50));
-        this.altPlus50 = new MinimalButton(pb0 + (pbw + pbg), row1Y, pbw, fieldHeight, Component.literal("++"),
-                b -> adjustAltitude(50));
-        this.addRenderableWidget(this.altMinus50);
-        this.addRenderableWidget(this.altPlus50);
+        this.addRenderableWidget(new MinimalButton(guiLeft + A_BTN1_X, fldY, A_BTN_W, FIELD_H,
+                Component.literal("--"), b -> adjustAltitude(-50)));
+        this.addRenderableWidget(new MinimalButton(guiLeft + A_BTN2_X, fldY, A_BTN_W, FIELD_H,
+                Component.literal("++"), b -> adjustAltitude(50)));
 
-        // Скорость: лейбл + поле + -/+
-        this.speedField = new EditBox(this.font, pfX, row2Y, pfw, fieldHeight, Component.literal("SPD"));
-        this.speedField.setMaxLength(4);
-        this.speedField.setValue(String.valueOf((int) Mth.clamp(180, minSpeed,
-                maxSpeed)));
-        this.speedField.setFilter(this::isValidFloat);
-        this.speedField.setTextColor(COL_TEXT_VALUE);
-        this.speedField.setBordered(true);
+        this.speedField = mkValue(guiLeft + A_FLD_X, row2Y, A_FLD_W, FIELD_H, "SPD",
+                String.valueOf((int) Mth.clamp(180, minSpeed, maxSpeed)), this::isValidFloat);
         this.addRenderableWidget(this.speedField);
-        this.speedMinus = new MinimalButton(pb0, row2Y, pbw, fieldHeight, Component.literal("-"),
-                b -> adjustSpeed(-5));
-        this.speedPlus = new MinimalButton(pb0 + (pbw + pbg), row2Y, pbw, fieldHeight, Component.literal("+"),
-                b -> adjustSpeed(5));
-        this.addRenderableWidget(this.speedMinus);
-        this.addRenderableWidget(this.speedPlus);
+        this.addRenderableWidget(new MinimalButton(guiLeft + A_BTN1_X, row2Y, A_BTN_W, FIELD_H,
+                Component.literal("-"), b -> adjustSpeed(-5)));
+        this.addRenderableWidget(new MinimalButton(guiLeft + A_BTN2_X, row2Y, A_BTN_W, FIELD_H,
+                Component.literal("+"), b -> adjustSpeed(5)));
 
-        // ═══ РЯД ТУМБЛЕРОВ ═══  (под верхними панелями, 2 кнопки на всю ширину)
-        int togY = guiTop + 116;
-        int togH = 18;
-        this.evasiveButton = new MinimalButton(leftX, togY, leftW, togH, getEvasiveButtonText(),
-                b -> toggleEvasive());
+        // ═══ РЯД ТУМБЛЕРОВ: манёвр уклонения | огибание рельефа ═══
+        int togY = guiTop + TOG_Y;
+        this.evasiveButton = new MinimalButton(guiLeft + LEFT_X, togY, PANEL_W, TOG_H,
+                getEvasiveButtonText(), b -> toggleEvasive());
+        this.terrainFollowButton = new MinimalButton(guiLeft + RIGHT_X, togY, PANEL_W, TOG_H,
+                getTerrainFollowButtonText(), b -> toggleTerrainFollow());
         this.addRenderableWidget(this.evasiveButton);
-        this.terrainFollowButton = new MinimalButton(rightX, togY, rightW, togH, getTerrainFollowButtonText(),
-                b -> toggleTerrainFollow());
         this.addRenderableWidget(this.terrainFollowButton);
 
-        // ═══ НИЖНЯЯ ПАНЕЛЬ: МАРШРУТ ═══  (guiLeft+8 .. guiLeft+292, высота 110)
-        int routeY = guiTop + 140;
-        int wpRow1 = routeY + 24; // поля WX/WY/WZ
-        int wpRow2 = routeY + 46; // кнопки
-        int wpFx0 = leftX + 5;    // 13
-        this.wpXField = mkCoord(wpFx0, wpRow1, fw, fieldHeight, "WX", "");
+        // ═══ НИЖНЯЯ ПАНЕЛЬ: МАРШРУТ ═══
+        int wpX0 = guiLeft + ROUTE_X + (ROUTE_W - COORD_TRIPLET_W) / 2;
+        int wpFldY = guiTop + RT_FLD_Y;
+        this.wpXField = mkCoord(wpX0, wpFldY, FW, FIELD_H, "WX", "");
+        this.wpYField = mkCoord(wpX0 + (FW + FG), wpFldY, FW, FIELD_H, "WY", "");
+        this.wpZField = mkCoord(wpX0 + (FW + FG) * 2, wpFldY, FW, FIELD_H, "WZ", "");
         this.addRenderableWidget(this.wpXField);
-        this.wpYField = mkCoord(wpFx0 + (fw + fg), wpRow1, fw, fieldHeight, "WY", "");
         this.addRenderableWidget(this.wpYField);
-        this.wpZField = mkCoord(wpFx0 + (fw + fg) * 2, wpRow1, fw, fieldHeight, "WZ", "");
         this.addRenderableWidget(this.wpZField);
 
-        // 4 кнопки маршрута: 66×4 + gap 6×3 = 282 (панель 284 inner)
-        int wpBW = 66;
-        int wpBG = 6;
-        int wpB0 = guiLeft + 8;
-        this.addWaypointButton = new MinimalButton(wpB0, wpRow2, wpBW, fieldHeight,
+        int wpBtnY = guiTop + RT_BTN_Y;
+        int wpB0 = guiLeft + WP_B0;
+        this.addWaypointButton = new MinimalButton(wpB0, wpBtnY, WP_BW, FIELD_H,
                 Component.translatable("screen.wrbdrones.radio.wp_add"), b -> addWaypoint());
         this.addRenderableWidget(this.addWaypointButton);
-        this.addRenderableWidget(new MinimalButton(wpB0 + (wpBW + wpBG), wpRow2, wpBW, fieldHeight,
+        this.addRenderableWidget(new MinimalButton(wpB0 + (WP_BW + WP_BG), wpBtnY, WP_BW, FIELD_H,
                 Component.translatable("screen.wrbdrones.radio.wp_look"), b -> useLookForWaypoint()));
-        this.removeLastWaypointButton = new MinimalButton(wpB0 + (wpBW + wpBG) * 2, wpRow2, wpBW, fieldHeight,
+        this.removeLastWaypointButton = new MinimalButton(wpB0 + (WP_BW + WP_BG) * 2, wpBtnY, WP_BW, FIELD_H,
                 Component.translatable("screen.wrbdrones.radio.wp_remove_last"), b -> removeLastWaypoint());
         this.addRenderableWidget(this.removeLastWaypointButton);
-        this.clearWaypointsButton = new MinimalButton(wpB0 + (wpBW + wpBG) * 3, wpRow2, wpBW, fieldHeight,
+        this.clearWaypointsButton = new MinimalButton(wpB0 + (WP_BW + WP_BG) * 3, wpBtnY, WP_BW, FIELD_H,
                 Component.translatable("screen.wrbdrones.radio.wp_clear"), b -> clearWaypoints());
         this.addRenderableWidget(this.clearWaypointsButton);
 
         // ═══ ЗАПУСК ═══
-        this.launchButton = new MinimalButton(guiLeft + 8, guiTop + GUI_HEIGHT - 26, GUI_WIDTH - 16, 18,
+        this.launchButton = new LaunchButton(guiLeft + LEFT_X, guiTop + LAUNCH_Y, ROUTE_W, BTN_H + 2,
                 Component.translatable("screen.wrbdrones.radio.launch").withStyle(ChatFormatting.BOLD),
                 b -> onLaunch());
         this.addRenderableWidget(this.launchButton);
     }
 
-    /** Фабрика EditBox координаты (фильтр int, зелёный текст, бордер). */
+    /** Фабрика EditBox координаты (фильтр int, янтарный текст, бордер). */
     private EditBox mkCoord(int x, int y, int w, int h, String hint, String initial) {
         EditBox box = new EditBox(this.font, x, y, w, h, Component.literal(hint));
         box.setMaxLength(10);
         box.setValue(initial);
         box.setFilter(this::isValidCoordinate);
+        box.setTextColor(COL_TEXT_VALUE);
+        box.setBordered(true);
+        return box;
+    }
+
+    /** Фабрика EditBox параметра (высота/скорость) с заданным фильтром. */
+    private EditBox mkValue(int x, int y, int w, int h, String hint, String initial,
+            java.util.function.Predicate<String> filter) {
+        EditBox box = new EditBox(this.font, x, y, w, h, Component.literal(hint));
+        box.setMaxLength(4);
+        box.setValue(initial);
+        box.setFilter(filter);
         box.setTextColor(COL_TEXT_VALUE);
         box.setBordered(true);
         return box;
@@ -301,28 +328,20 @@ public class RadioScreen extends Screen {
     private void adjustAltitude(int delta) {
         try {
             int current = Integer.parseInt(altitudeField.getValue());
-            int minAlt = (int) minAltitude;
-            int maxAlt = (int) maxAltitude;
-            int newVal = Mth.clamp(current + delta, minAlt, maxAlt);
+            int newVal = Mth.clamp(current + delta, (int) minAltitude, (int) maxAltitude);
             altitudeField.setValue(String.valueOf(newVal));
         } catch (NumberFormatException e) {
-            int defaultAlt = (int) Mth.clamp(80, minAltitude,
-                    maxAltitude);
-            altitudeField.setValue(String.valueOf(defaultAlt));
+            altitudeField.setValue(String.valueOf((int) Mth.clamp(80, minAltitude, maxAltitude)));
         }
     }
 
     private void adjustSpeed(int delta) {
         try {
             float current = Float.parseFloat(speedField.getValue());
-            float minSpeedVal = (float) minSpeed;
-            float maxSpeedVal = (float) maxSpeed;
-            float newVal = Mth.clamp(current + delta, minSpeedVal, maxSpeedVal);
+            float newVal = Mth.clamp(current + delta, (float) minSpeed, (float) maxSpeed);
             speedField.setValue(String.valueOf((int) newVal));
         } catch (NumberFormatException e) {
-            int defaultSpeed = (int) Mth.clamp(180, minSpeed,
-                    maxSpeed);
-            speedField.setValue(String.valueOf(defaultSpeed));
+            speedField.setValue(String.valueOf((int) Mth.clamp(180, minSpeed, maxSpeed)));
         }
     }
 
@@ -399,27 +418,17 @@ public class RadioScreen extends Screen {
             float speedKmh = parseFloat(speedField.getValue(), 180f);
             float altitude = parseFloat(altitudeField.getValue(), 80f);
 
-            double maxDist = maxDistance;
-            if (calculateDistance() > maxDist) {
-                // Warning is now handled in render
+            if (calculateDistance() > maxDistance) {
+                return; // предупреждение показывается в render
+            }
+            if (isSpeedInvalid() || isAltitudeInvalid()) {
                 return;
             }
-
-            if (isSpeedInvalid()) {
-                return;
-            }
-
-            if (isAltitudeInvalid()) {
-                return;
-            }
-
-            double minAlt = minAltitude;
-            double maxAlt = maxAltitude;
 
             speedKmh = Mth.clamp(speedKmh, (float) minSpeed, (float) maxSpeed);
-            altitude = Mth.clamp(altitude, (float) minAlt, (float) maxAlt);
+            altitude = Mth.clamp(altitude, (float) minAltitude, (float) maxAltitude);
 
-            // Convert km/h to blocks/tick (1 b/t = 72 km/h)
+            // km/h -> blocks/tick (1 b/t = 72 km/h)
             float speedBlocksPerTick = speedKmh / 72.0f;
 
             PacketDistributor.sendToServer(
@@ -427,7 +436,7 @@ public class RadioScreen extends Screen {
                             terrainFollow, new ArrayList<>(waypoints)));
             this.onClose();
         } catch (NumberFormatException e) {
-            // Invalid coordinates
+            // некорректные координаты — игнорируем
         }
     }
 
@@ -467,7 +476,6 @@ public class RadioScreen extends Screen {
     private double calculateETA() {
         double dist = calculateDistance();
         float speedKmh = parseFloat(speedField.getValue(), 180f);
-        // Convert km/h to blocks/sec: (kmh / 72) * 20
         float speedBlocksPerSec = (speedKmh / 72.0f) * 20.0f;
         if (speedBlocksPerSec <= 0)
             return 0;
@@ -475,58 +483,57 @@ public class RadioScreen extends Screen {
     }
 
     @Override
-    public void render(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        super.render(graphics, mouseX, mouseY, partialTick);
+    public void renderBackground(@NotNull GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+        // Затемнение/блюр ванильного фона, затем — вся «хромировка» планшета. Виджеты
+        // (поля/кнопки) рисуются поверх стандартным циклом Screen.render.
+        super.renderBackground(graphics, mouseX, mouseY, partialTick);
 
         int guiLeft = (this.width - GUI_WIDTH) / 2;
         int guiTop = (this.height - GUI_HEIGHT) / 2;
-        int leftX = guiLeft + 8;
-        int rightX = guiLeft + 150;
-        int routeX = guiLeft + 8;
-        int routeW = GUI_WIDTH - 16; // 284
 
         // 1. Фон + бордер «планшета»
         graphics.fill(guiLeft, guiTop, guiLeft + GUI_WIDTH, guiTop + GUI_HEIGHT, COL_BACKGROUND);
         graphics.renderOutline(guiLeft, guiTop, GUI_WIDTH, GUI_HEIGHT, COL_BORDER);
 
-        // 2. Заголовок окна
-        graphics.fill(guiLeft, guiTop, guiLeft + GUI_WIDTH, guiTop + 24, 0xFF151515);
-        graphics.fill(guiLeft, guiTop + 24, guiLeft + GUI_WIDTH, guiTop + 25, COL_BORDER);
+        // 2. Заголовок окна + янтарная акцент-линия под ним
+        graphics.fill(guiLeft, guiTop, guiLeft + GUI_WIDTH, guiTop + HEADER_H, COL_HEADER_BAR);
+        graphics.fill(guiLeft, guiTop + HEADER_H, guiLeft + GUI_WIDTH, guiTop + HEADER_H + 1, COL_ACCENT);
         graphics.drawCenteredString(this.font, Component.translatable("screen.wrbdrones.radio.header"),
-                this.width / 2, guiTop + 8, COL_TEXT_HEADER);
+                this.width / 2, guiTop + 7, COL_TEXT_HEADER);
 
         // 3. Панели
-        drawPanel(graphics, leftX, guiTop + 32, 142, 78, Component.translatable("screen.wrbdrones.radio.target"));
-        drawPanel(graphics, rightX, guiTop + 32, 142, 78, Component.translatable("screen.wrbdrones.radio.params"));
-        drawPanel(graphics, routeX, guiTop + 140, routeW, 110,
+        drawPanel(graphics, guiLeft + LEFT_X, guiTop + PANEL_TOP_Y, PANEL_W, PANEL_TOP_H,
+                Component.translatable("screen.wrbdrones.radio.target"));
+        drawPanel(graphics, guiLeft + RIGHT_X, guiTop + PANEL_TOP_Y, PANEL_W, PANEL_TOP_H,
+                Component.translatable("screen.wrbdrones.radio.params"));
+        drawPanel(graphics, guiLeft + ROUTE_X, guiTop + ROUTE_Y, ROUTE_W, ROUTE_H,
                 Component.translatable("screen.wrbdrones.radio.wp_list", waypoints.size(), maxWaypoints()));
 
-        // 4. Лейблы X/Y/Z над полями (под вкладкой панели)
-        int xyzLblY = guiTop + 47;
-        drawLabelCentered(graphics, "X", xField.getX() + xField.getWidth() / 2, xyzLblY);
-        drawLabelCentered(graphics, "Y", yField.getX() + yField.getWidth() / 2, xyzLblY);
-        drawLabelCentered(graphics, "Z", zField.getX() + zField.getWidth() / 2, xyzLblY);
+        // 4. Лейблы X/Y/Z над полями
+        int lblY = guiTop + TP_CONTENT;
+        drawLabelCentered(graphics, "X", xField.getX() + xField.getWidth() / 2, lblY);
+        drawLabelCentered(graphics, "Y", yField.getX() + yField.getWidth() / 2, lblY);
+        drawLabelCentered(graphics, "Z", zField.getX() + zField.getWidth() / 2, lblY);
 
-        // 5. Лейблы ВЫС/СКР слева от полей (правая панель)
+        // 5. Лейблы ВЫС/СКР слева от полей (правая панель), по центру строки поля
         graphics.drawString(this.font, Component.translatable("screen.wrbdrones.radio.alt"),
-                rightX + 5, xField.getY() + 4, COL_TEXT_LABEL, false);
+                guiLeft + A_LBL_X, altitudeField.getY() + 4, COL_TEXT_LABEL, false);
         graphics.drawString(this.font, Component.translatable("screen.wrbdrones.radio.spd"),
-                rightX + 5, speedField.getY() + 4, COL_TEXT_LABEL, false);
+                guiLeft + A_LBL_X, speedField.getY() + 4, COL_TEXT_LABEL, false);
 
         // 6. Лейблы WX/WY/WZ над полями маршрута
-        int wpLblY = guiTop + 157;
+        int wpLblY = guiTop + RT_CONTENT;
         drawLabelCentered(graphics, "WX", wpXField.getX() + wpXField.getWidth() / 2, wpLblY);
         drawLabelCentered(graphics, "WY", wpYField.getX() + wpYField.getWidth() / 2, wpLblY);
         drawLabelCentered(graphics, "WZ", wpZField.getX() + wpZField.getWidth() / 2, wpLblY);
 
         // 7. Список маршрута (под кнопками)
-        int listY = clearWaypointsButton.getY() + clearWaypointsButton.getHeight() + 4;
-        int rowY = listY;
+        int rowY = guiTop + RT_LIST_Y;
         int maxRows = Math.min(waypoints.size(), 3);
         for (int i = 0; i < maxRows; i++) {
             int[] wp = waypoints.get(i);
-            String row = String.format("§f%d. §a%d %d %d", i + 1, wp[0], wp[1], wp[2]);
-            graphics.drawCenteredString(this.font, row, this.width / 2, rowY + i * 9, COL_TEXT_VALUE);
+            String row = String.format("§7%d. §f%d %d %d", i + 1, wp[0], wp[1], wp[2]);
+            graphics.drawCenteredString(this.font, row, this.width / 2, rowY + i * 9, COL_TEXT_HEADER);
         }
         if (waypoints.size() > 3) {
             graphics.drawCenteredString(this.font, "§7+" + (waypoints.size() - 3), this.width / 2,
@@ -534,35 +541,28 @@ public class RadioScreen extends Screen {
         }
 
         // 8. Статус над кнопкой запуска
-        int statusY = guiTop + GUI_HEIGHT - 44;
+        int statusY = guiTop + STATUS_Y;
         double distance = calculateDistance();
-        double maxDist = maxDistance;
-
-        if (distance > maxDist) {
-            String warningStr = Component.translatable("screen.wrbdrones.radio.warning.too_far", (int) maxDist)
-                    .getString();
-            graphics.drawCenteredString(this.font, warningStr, this.width / 2, statusY, 0xFFFF5555);
+        if (distance > maxDistance) {
+            graphics.drawCenteredString(this.font,
+                    Component.translatable("screen.wrbdrones.radio.warning.too_far", (int) maxDistance),
+                    this.width / 2, statusY, COL_WARNING);
         } else if (isSpeedInvalid()) {
-            String warningStr = Component
-                    .translatable("screen.wrbdrones.radio.warning.invalid_speed", (int) minSpeed, (int) maxSpeed)
-                    .getString();
-            graphics.drawCenteredString(this.font, warningStr, this.width / 2, statusY, 0xFFFF5555);
+            graphics.drawCenteredString(this.font,
+                    Component.translatable("screen.wrbdrones.radio.warning.invalid_speed", (int) minSpeed, (int) maxSpeed),
+                    this.width / 2, statusY, COL_WARNING);
         } else if (isAltitudeInvalid()) {
-            double minAlt = minAltitude;
-            double maxAlt = maxAltitude;
-            String warningStr = Component
-                    .translatable("screen.wrbdrones.radio.warning.invalid_alt", (int) minAlt, (int) maxAlt).getString();
-            graphics.drawCenteredString(this.font, warningStr, this.width / 2, statusY, 0xFFFF5555);
+            graphics.drawCenteredString(this.font,
+                    Component.translatable("screen.wrbdrones.radio.warning.invalid_alt", (int) minAltitude, (int) maxAltitude),
+                    this.width / 2, statusY, COL_WARNING);
         } else {
-            double eta = calculateETA();
-            String distStr = Component.translatable("screen.wrbdrones.radio.dist", String.format("%.1f", distance))
-                    .getString();
-            String etaStr = Component.translatable("screen.wrbdrones.radio.eta", String.format("%.2f", eta))
-                    .getString();
+            String distStr = Component.translatable("screen.wrbdrones.radio.dist",
+                    String.format("%.1f", distance)).getString();
+            String etaStr = Component.translatable("screen.wrbdrones.radio.eta",
+                    String.format("%.2f", calculateETA())).getString();
             graphics.drawCenteredString(this.font, distStr + "   " + etaStr, this.width / 2, statusY, COL_TEXT_LABEL);
         }
     }
-
 
     private boolean isSpeedInvalid() {
         float val = parseFloat(speedField.getValue(), 0f);
@@ -571,9 +571,7 @@ public class RadioScreen extends Screen {
 
     private boolean isAltitudeInvalid() {
         float val = parseFloat(altitudeField.getValue(), 0f);
-        double minAlt = minAltitude;
-        double maxAlt = maxAltitude;
-        return val < minAlt || val > maxAlt;
+        return val < minAltitude || val > maxAltitude;
     }
 
     private void drawLabelCentered(GuiGraphics graphics, String text, int x, int y) {
@@ -584,39 +582,47 @@ public class RadioScreen extends Screen {
     private void drawPanel(GuiGraphics graphics, int x, int y, int w, int h, Component title) {
         graphics.fill(x, y, x + w, y + h, COL_PANEL);
         graphics.renderOutline(x, y, w, h, COL_PANEL_BORDER);
-        graphics.fill(x, y, x + w, y + 14, COL_PANEL_HEADER);
-        graphics.fill(x, y + 14, x + w, y + 15, COL_PANEL_BORDER);
+        graphics.fill(x + 1, y + 1, x + w - 1, y + PANEL_HDR, COL_PANEL_HEADER);
+        graphics.fill(x, y + PANEL_HDR, x + w, y + PANEL_HDR + 1, COL_PANEL_BORDER);
         graphics.drawCenteredString(this.font, title, x + w / 2, y + 3, COL_TEXT_LABEL);
     }
 
+    /** Плоская кнопка в стиле консоли. */
     private class MinimalButton extends Button {
-        public MinimalButton(int x, int y, int width, int height, Component message, OnPress onPress) {
+        MinimalButton(int x, int y, int width, int height, Component message, OnPress onPress) {
             super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
         }
 
         @Override
         public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-            int bgColor = this.active ? (this.isHoveredOrFocused() ? COL_ACCENT_HOVER : COL_ACCENT) : 0xFF202020;
-            int textColor = this.active ? 0xFFE0E0E0 : 0xFF555555;
+            int bg = this.active ? (this.isHoveredOrFocused() ? COL_BTN_HOVER : COL_BTN) : COL_BTN_DISABLED;
+            int border = this.isHoveredOrFocused() && this.active ? COL_ACCENT : COL_PANEL_BORDER;
+            int text = this.active ? COL_BTN_TEXT : COL_BTN_TEXT_DIS;
+            graphics.fill(getX(), getY(), getX() + width, getY() + height, bg);
+            graphics.renderOutline(getX(), getY(), width, height, border);
+            graphics.drawCenteredString(font, getMessage(), getX() + width / 2,
+                    getY() + (height - 8) / 2, text);
+        }
+    }
 
-            graphics.fill(getX(), getY(), getX() + width, getY() + height, bgColor);
-            graphics.renderOutline(getX(), getY(), width, height, COL_BORDER);
-            graphics.drawCenteredString(font, getMessage(), getX() + width / 2, getY() + (height - 8) / 2, textColor);
+    /** Главная кнопка «ЗАПУСК» — зелёная рамка/текст, чтобы выделяться. */
+    private class LaunchButton extends Button {
+        LaunchButton(int x, int y, int width, int height, Component message, OnPress onPress) {
+            super(x, y, width, height, message, onPress, DEFAULT_NARRATION);
+        }
+
+        @Override
+        public void renderWidget(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
+            int bg = this.isHoveredOrFocused() ? COL_LAUNCH_HOVER : COL_LAUNCH_BG;
+            graphics.fill(getX(), getY(), getX() + width, getY() + height, bg);
+            graphics.renderOutline(getX(), getY(), width, height, COL_LAUNCH_BORDER);
+            graphics.drawCenteredString(font, getMessage(), getX() + width / 2,
+                    getY() + (height - 8) / 2, COL_LAUNCH_TEXT);
         }
     }
 
     @Override
     public boolean isPauseScreen() {
         return false;
-    }
-
-    @Override
-    public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
-        if (this.xField.isFocused() || this.yField.isFocused() || this.zField.isFocused()
-                || this.speedField.isFocused() || this.altitudeField.isFocused()
-                || this.wpXField.isFocused() || this.wpYField.isFocused() || this.wpZField.isFocused()) {
-            return super.keyPressed(keyCode, scanCode, modifiers);
-        }
-        return super.keyPressed(keyCode, scanCode, modifiers);
     }
 }
