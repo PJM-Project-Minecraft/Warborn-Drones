@@ -23,7 +23,6 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -109,8 +108,6 @@ public abstract class AddonDroneEntity extends DroneEntity {
     private boolean wrbdrones$endingControl = false;
     @Nullable
     private UUID wrbdrones$controllerUuid = null;
-    @Nullable
-    private ChunkPos wrbdrones$loadedChunk = null;
 
     @SuppressWarnings("unchecked")
     protected AddonDroneEntity(EntityType<? extends DroneEntity> type, Level level) {
@@ -913,7 +910,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
                     && !controllerId.isEmpty();
 
             // Обновляем загрузку чанков: держим чанк загруженным, если есть контроллер
-            wrbdrones$updateChunkLoading(serverLevel, hasController);
+            wrbdrones$updateChunkLoading(hasController);
 
             if (hasController) {
                 Player controller = EntityFindUtil.findPlayer(serverLevel, controllerId);
@@ -986,7 +983,7 @@ public abstract class AddonDroneEntity extends DroneEntity {
     public void remove(@NotNull net.minecraft.world.entity.Entity.@NotNull RemovalReason reason) {
         // Завершаем управление при удалении дрона
         if (!this.level().isClientSide() && this.level() instanceof ServerLevel serverLevel) {
-            wrbdrones$updateChunkLoading(serverLevel, false);
+            ru.liko.wrbdrones.util.DroneChunkLoader.release(this.getUUID());
 
             wrbdrones$restoreControllerOnRemoval(serverLevel);
             String controllerId = this.entityData.get(DroneEntity.CONTROLLER);
@@ -1082,31 +1079,15 @@ public abstract class AddonDroneEntity extends DroneEntity {
     }
 
     /**
-     * Управляет принудительной загрузкой чанков.
-     * Если force=true, текущий чанк дрона будет загружен принудительно.
-     * Если force=false, принудительная загрузка будет снята.
+     * Держит связанный дрон тикающим уникальным непостоянным ticket-ом. В отличие
+     * от {@code ServerLevel#setChunkForced} этот путь не пишет глобальный список
+     * forceload-чанков мира и не конфликтует с другими дронами в том же чанке.
      */
-    private void wrbdrones$updateChunkLoading(ServerLevel level, boolean force) {
-        ChunkPos currentChunk = this.chunkPosition();
-
-        // Если нам нужно держать чанк загруженным
+    private void wrbdrones$updateChunkLoading(boolean force) {
         if (force) {
-            // Если чанк изменился или не был загружен
-            if (!currentChunk.equals(wrbdrones$loadedChunk)) {
-                // Выгружаем старый
-                if (wrbdrones$loadedChunk != null) {
-                    level.setChunkForced(wrbdrones$loadedChunk.x, wrbdrones$loadedChunk.z, false);
-                }
-                // Загружаем новый
-                level.setChunkForced(currentChunk.x, currentChunk.z, true);
-                wrbdrones$loadedChunk = currentChunk;
-            }
+            ru.liko.wrbdrones.util.DroneChunkLoader.keepEntityLoaded(this);
         } else {
-            // Если нужно перестать держать чанк (force=false)
-            if (wrbdrones$loadedChunk != null) {
-                level.setChunkForced(wrbdrones$loadedChunk.x, wrbdrones$loadedChunk.z, false);
-                wrbdrones$loadedChunk = null;
-            }
+            ru.liko.wrbdrones.util.DroneChunkLoader.releaseEntity(this.getUUID());
         }
     }
 

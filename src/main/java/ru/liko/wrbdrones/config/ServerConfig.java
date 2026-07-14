@@ -289,22 +289,19 @@ public class ServerConfig {
         CHUNK_SEND_BOOST_ENABLED = builder.define("boost_enabled", true);
 
         builder.comment(
-                "Forced chunks-per-tick send rate for the pilot (vanilla default 9, hard cap 64).",
-                "Higher = terrain ahead of the drone streams in faster. 64 ~= 1280 chunks/sec.");
-        CHUNK_SEND_BOOST_RATE = builder.defineInRange("boost_chunks_per_tick", 64.0, 1.0, 64.0);
+                "Принудительная скорость отправки чанков пилоту (ваниль: 9, безопасный максимум: 32).",
+                "Значение 16 оставляет запас, не сериализуя до 1280 чанков/с на одного пилота.");
+        CHUNK_SEND_BOOST_RATE = builder.defineInRange("boost_chunks_per_tick", 16.0, 1.0, 32.0);
 
         builder.comment(
-                "Max unacknowledged chunk batches in flight for the pilot (vanilla default 10).",
-                "Higher helps on high-latency connections at the cost of more bandwidth/memory.");
-        CHUNK_SEND_BOOST_BATCHES = builder.defineInRange("boost_max_batches", 16, 1, 64);
+                "Максимум неподтверждённых батчей чанков у пилота (ваниль: 10).",
+                "Держите значение низким: каждый батч может содержать boost_chunks_per_tick полных чанков.");
+        CHUNK_SEND_BOOST_BATCHES = builder.defineInRange("boost_max_batches", 4, 1, 8);
 
         builder.comment(
-                "Safety cap (in chunks) for how far a drone keeps chunks loaded around itself via its",
-                "own region ticket. The ACTUAL radius follows the server view-distance so the pilot",
-                "loads exactly as many chunks around the drone as a normal player does (view-distance",
-                "20 => 20 chunks), capped by this value. Does NOT touch player chunk-ticket accounting,",
-                "so it cannot corrupt chunk loading for other players. Lower this only if a fast drone",
-                "at high view-distance strains chunk generation.");
+                "Безопасный предел радиуса FULL-only обзора дрона. Фактический радиус — минимум из",
+                "запрошенного игроком view-distance, серверного view-distance и этого значения.",
+                "ENTITY_TICKING получает только центр дрона; чанки обзора генерируются, но не тикают.");
         DRONE_CHUNK_RADIUS = builder.defineInRange("drone_max_load_radius", 32, 2, 32);
 
         builder.pop();

@@ -20,26 +20,26 @@ import ru.liko.wrbdrones.entity.ZalaLancetEntity;
 import ru.liko.wrbdrones.util.DroneChunkLoader;
 import ru.liko.wrbdrones.util.SignalCalculator;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * Каждый серверный тик держит загруженными чанки дронов, которых пилотируют или на
- * которых наведён привязанный монитор в руке, чтобы дрон тикал и стримился пилоту
- * вдали от игроков.
+ * Каждый серверный тик держит FULL-чанки обзора дронов, которыми сейчас управляют
+ * через активный монитор, чтобы мир стримился пилоту вдали от его тела.
  *
- * <p>Загрузку делает {@link DroneChunkLoader} собственным region-ticket'ом вокруг
- * дрона — НЕ трогая player-ticket и учёт игроков в {@code DistanceManager} (прежний
- * подход с подменой секции игрока рассинхронизировал общий учёт и ломал прогрузку у
- * ВСЕХ). Каждый тик собираем множество «активных» дронов и снимаем тикеты у всех
- * остальных ({@link DroneChunkLoader#releaseAllExcept}) — единая точка снятия для всех
- * случаев: монитор убран, игрок вышел, дрон удалён.</p>
+ * <p>Загрузку делает {@link DroneChunkLoader} отдельными FULL-only tickets — НЕ
+ * трогая player-ticket и учёт игроков в {@code DistanceManager}. Каждый тик собираем
+ * множество активных дронов и снимаем области обзора у остальных
+ * ({@link DroneChunkLoader#releaseAllExcept}). Центральный ENTITY_TICKING-ticket
+ * связанного дрона обслуживает сама сущность.</p>
  */
 @EventBusSubscriber(modid = Wrbdrones.MODID, bus = EventBusSubscriber.Bus.GAME)
 public class DroneChunkTickHandler {
 
     private static int signalCheckTickCounter = 0;
+
+    private record ActiveDrone(AddonDroneEntity drone, int viewDistance) {}
 
     @SubscribeEvent
     public static void onServerTick(ServerTickEvent.Post event) {
@@ -48,23 +48,28 @@ public class DroneChunkTickHandler {
                 && signalCheckTickCounter >= ServerConfig.SIGNAL_SERVER_CHECK_INTERVAL_TICKS.get();
         if (checkSignal) signalCheckTickCounter = 0;
 
-        // Грузим вокруг дрона столько же чанков, сколько игрок грузит вокруг себя.
-        int viewDistance = event.getServer().getPlayerList().getViewDistance();
+        int serverViewDistance = event.getServer().getPlayerList().getViewDistance();
 
-        Set<UUID> activeDrones = new HashSet<>();
+        Map<UUID, ActiveDrone> activeDrones = new HashMap<>();
         for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
             AddonDroneEntity drone = findLinkedDrone(player);
             if (drone == null) {
                 continue;
             }
-            DroneChunkLoader.keepLoaded(drone, viewDistance);
-            activeDrones.add(drone.getUUID());
+            int viewDistance = Math.max(2, Math.min(serverViewDistance, player.requestedViewDistance()));
+            activeDrones.merge(
+                    drone.getUUID(),
+                    new ActiveDrone(drone, viewDistance),
+                    (left, right) -> left.viewDistance >= right.viewDistance ? left : right);
             if (checkSignal) {
                 checkServerSignalCutoff(player, drone);
             }
         }
+        for (ActiveDrone active : activeDrones.values()) {
+            DroneChunkLoader.keepLoaded(active.drone, active.viewDistance);
+        }
         // Дрон, которого в этот тик никто не держит, теряет тикет и выгружается.
-        DroneChunkLoader.releaseAllExcept(activeDrones);
+        DroneChunkLoader.releaseAllExcept(activeDrones.keySet());
     }
 
     /**
@@ -107,8 +112,9 @@ public class DroneChunkTickHandler {
     }
 
     /**
-     * Возвращает дрон, который игрок сейчас держит загруженным: либо активно пилотирует
-     * (есть якорь вида), либо в главной руке привязанный к дрону монитор. Иначе {@code null}.
+     * Возвращает дрон, которым игрок сейчас управляет: либо есть якорь вида, либо в
+     * главной руке находится привязанный монитор с {@code Using=true}. Иначе
+     * {@code null}.
      * Работой с чанками здесь не занимаемся — только идентификация дрона.
      */
     private static AddonDroneEntity findLinkedDrone(ServerPlayer player) {
@@ -124,7 +130,7 @@ public class DroneChunkTickHandler {
             return null;
         }
         var tag = NBTTool.getTag(mainHand);
-        if (!tag.getBoolean(MonitorItem.LINKED)) {
+        if (!tag.getBoolean(MonitorItem.LINKED) || !tag.getBoolean(MonitorItem.USING)) {
             return null;
         }
         String linkedDroneId = tag.getString(MonitorItem.LINKED_DRONE);

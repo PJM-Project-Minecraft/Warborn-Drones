@@ -1,6 +1,7 @@
 package ru.liko.wrbdrones.network;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -29,10 +30,15 @@ public record LaunchShahedPacket(
         boolean terrainFollow,
         List<int[]> waypoints) implements CustomPacketPayload {
 
+    private static final int ABSOLUTE_MAX_WAYPOINTS = 16;
+
     public static final Type<LaunchShahedPacket> TYPE = new Type<>(Wrbdrones.loc("launch_shahed"));
 
     public static final StreamCodec<ByteBuf, LaunchShahedPacket> STREAM_CODEC = StreamCodec.of(
             (buf, packet) -> {
+                if (packet.waypoints.size() > ABSOLUTE_MAX_WAYPOINTS) {
+                    throw new IllegalArgumentException("Too many Shahed waypoints: " + packet.waypoints.size());
+                }
                 ByteBufCodecs.INT.encode(buf, packet.shahedEntityId);
                 ByteBufCodecs.INT.encode(buf, packet.targetX);
                 ByteBufCodecs.INT.encode(buf, packet.targetY);
@@ -45,6 +51,9 @@ public record LaunchShahedPacket(
                 // targetX/Y/Z, сюда НЕ входит (её Shahed добавляет в launch()).
                 ByteBufCodecs.INT.encode(buf, packet.waypoints.size());
                 for (int[] wp : packet.waypoints) {
+                    if (wp == null || wp.length < 3) {
+                        throw new IllegalArgumentException("Shahed waypoint must contain x, y and z");
+                    }
                     ByteBufCodecs.INT.encode(buf, wp[0]);
                     ByteBufCodecs.INT.encode(buf, wp[1]);
                     ByteBufCodecs.INT.encode(buf, wp[2]);
@@ -60,7 +69,10 @@ public record LaunchShahedPacket(
                 boolean evasiveMode = ByteBufCodecs.BOOL.decode(buf);
                 boolean terrainFollow = ByteBufCodecs.BOOL.decode(buf);
                 int count = ByteBufCodecs.INT.decode(buf);
-                List<int[]> waypoints = new ArrayList<>(Math.min(count, 16));
+                if (count < 0 || count > ABSOLUTE_MAX_WAYPOINTS) {
+                    throw new DecoderException("Invalid Shahed waypoint count: " + count);
+                }
+                List<int[]> waypoints = new ArrayList<>(count);
                 for (int i = 0; i < count; i++) {
                     int x = ByteBufCodecs.INT.decode(buf);
                     int y = ByteBufCodecs.INT.decode(buf);
@@ -78,6 +90,13 @@ public record LaunchShahedPacket(
             }
 
             if (player.level() instanceof ServerLevel serverLevel) {
+                if (!Float.isFinite(packet.speed()) || !Float.isFinite(packet.altitude())) {
+                    return;
+                }
+                int configuredMaxWaypoints = ServerConfig.SHAHED136_MAX_WAYPOINTS.get();
+                if (packet.waypoints().size() > configuredMaxWaypoints) {
+                    return;
+                }
                 Entity entity = serverLevel.getEntity(packet.shahedEntityId);
                 if (entity instanceof Shahed136Entity shahed) {
                     if (!shahed.isLaunched()) {
@@ -104,7 +123,8 @@ public record LaunchShahedPacket(
                         shahed.setSetSpeed(clampedSpeed);
                         shahed.setSetAltitude(clampedAlt);
                         shahed.setEvasiveMode(packet.evasiveMode);
-                        shahed.setTerrainFollow(packet.terrainFollow);
+                        shahed.setTerrainFollow(packet.terrainFollow
+                                && ServerConfig.SHAHED136_TERRAIN_FOLLOW_ALLOWED.get());
 
                         // Промежуточные путевые точки → Vec3 (финал добавится в launch()).
                         List<Vec3> via = new ArrayList<>(packet.waypoints.size());

@@ -19,6 +19,7 @@ import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.TicketType;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -60,7 +61,10 @@ import software.bernie.geckolib.animation.RawAnimation;
 import software.bernie.geckolib.util.GeckoLibUtil;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
@@ -107,6 +111,11 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
     private static final float LAUNCH_INITIAL_SPEED = 0.1f;
     private static final double RAYTRACE_SCALE = 1.5;
     private static final double CHUNK_PRELOAD_DISTANCE = 32.0;
+    private static final int ENTITY_TICKET_RADIUS = 2;
+    private static final TicketType<UUID> ENTITY_TICKET =
+            TicketType.create("wrbdrones_shahed_entity", Comparator.<UUID>naturalOrder());
+    private static final TicketType<UUID> PRELOAD_TICKET =
+            TicketType.create("wrbdrones_shahed_preload", Comparator.<UUID>naturalOrder());
 
     // ── Энергомодель (калибровка; скорости в блоках/тик) ────────────
     private static final float THRUST_IDLE = 0.005f;
@@ -183,8 +192,8 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
     private UUID ownerUUID;
 
     @Nullable
-    private List<ChunkPos> loadedChunks = null;
-    /** Чанк, вокруг которого последний раз строилась 3x3 зона. null = зона не была инициализирована. */
+    private Set<ChunkPos> loadedChunks = null;
+    /** Центр последней ticket-области. {@code null} = загрузка ещё не инициализирована. */
     @Nullable
     private ChunkPos loadedCenter = null;
 
@@ -994,38 +1003,67 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
         // выходит за пределы loadedChunks). Без этого дрон может проехать через ahead-чанк
         // (входит в loadedChunks → обновление не срабатывает), а следующий за ним чанк
         // окажется незагруженным в момент перехода — дрон фризится на тик.
-        // С loadedCenter обновление идёт на каждый переход: новый чанк всегда уже в 3x3
-        // прежнего центра, поэтому дрон никогда не заходит в незагруженный чанк.
+        // С loadedCenter обновление идёт на каждый переход: новый чанк всегда уже в 5x5
+        // области прежнего центра, поэтому дрон не заходит в незагруженный чанк.
         if (loadedCenter != null && loadedCenter.equals(currentChunk)) return;
 
-        unloadChunks(serverLevel);
-        loadedCenter = currentChunk;
-        loadedChunks = new ArrayList<>();
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dz = -1; dz <= 1; dz++) {
-                ChunkPos cp = new ChunkPos(currentChunk.x + dx, currentChunk.z + dz);
-                serverLevel.setChunkForced(cp.x, cp.z, true);
-                loadedChunks.add(cp);
-            }
-        }
+        UUID id = this.getUUID();
+        ChunkPos previousCenter = loadedCenter;
+        Set<ChunkPos> previousPreload = loadedChunks == null ? Set.of() : loadedChunks;
 
+        // radius=2 даёт ENTITY_TICKING только центру, BLOCK_TICKING кольцу 3x3 и
+        // FULL кольцу 5x5. Сначала ставим новый центр, чтобы не оставлять дрон без
+        // тикающего чанка при пересечении границы.
+        serverLevel.getChunkSource().addRegionTicket(
+                ENTITY_TICKET, currentChunk, ENTITY_TICKET_RADIUS, id);
+
+        Set<ChunkPos> desiredPreload = new HashSet<>();
+
+        // Упреждающий FULL-only ticket помогает генерации подготовить следующий
+        // чанк, не добавляя ему block/entity ticking.
         Vec3 motion = this.getDeltaMovement();
         if (motion.lengthSqr() > 0.01) {
             Vec3 ahead = this.position().add(motion.normalize().scale(CHUNK_PRELOAD_DISTANCE));
             ChunkPos aheadChunk = new ChunkPos(Mth.floor(ahead.x) >> 4, Mth.floor(ahead.z) >> 4);
-            if (!loadedChunks.contains(aheadChunk)) {
-                serverLevel.setChunkForced(aheadChunk.x, aheadChunk.z, true);
-                loadedChunks.add(aheadChunk);
+            int dx = Math.abs(aheadChunk.x - currentChunk.x);
+            int dz = Math.abs(aheadChunk.z - currentChunk.z);
+            // Область 5x5 уже держит центральный ticket.
+            if (Math.max(dx, dz) > ENTITY_TICKET_RADIUS) {
+                desiredPreload.add(aheadChunk);
             }
         }
+
+        // FULL-only tickets не тикают блоки/сущности и обновляются только по диффу.
+        for (ChunkPos pos : desiredPreload) {
+            if (!previousPreload.contains(pos)) {
+                serverLevel.getChunkSource().addRegionTicket(PRELOAD_TICKET, pos, 0, id);
+            }
+        }
+        for (ChunkPos pos : previousPreload) {
+            if (!desiredPreload.contains(pos)) {
+                serverLevel.getChunkSource().removeRegionTicket(PRELOAD_TICKET, pos, 0, id);
+            }
+        }
+
+        if (previousCenter != null) {
+            serverLevel.getChunkSource().removeRegionTicket(
+                    ENTITY_TICKET, previousCenter, ENTITY_TICKET_RADIUS, id);
+        }
+        loadedCenter = currentChunk;
+        loadedChunks = desiredPreload;
     }
 
     private void unloadChunks(ServerLevel serverLevel) {
         if (loadedChunks != null) {
             for (ChunkPos cp : loadedChunks) {
-                serverLevel.setChunkForced(cp.x, cp.z, false);
+                serverLevel.getChunkSource().removeRegionTicket(
+                        PRELOAD_TICKET, cp, 0, this.getUUID());
             }
             loadedChunks = null;
+        }
+        if (loadedCenter != null) {
+            serverLevel.getChunkSource().removeRegionTicket(
+                    ENTITY_TICKET, loadedCenter, ENTITY_TICKET_RADIUS, this.getUUID());
         }
         loadedCenter = null;
     }
