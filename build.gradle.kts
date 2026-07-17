@@ -64,6 +64,13 @@ repositories {
             includeGroup("maven.modrinth")
         }
     }
+    // JourneyMap API — для мягкой интеграции (скрытие миникарты при управлении дроном)
+    maven {
+        url = uri("https://jm.gserv.me/repository/maven-public/")
+        content {
+            includeGroup("info.journeymap")
+        }
+    }
     // mavenCentral — нужен для транзитивных зависимостей kotlinforforge
     mavenCentral()
 }
@@ -155,6 +162,9 @@ dependencies {
 
     runtimeOnly("top.theillusivec4.curios:curios-neoforge:9.2.0+1.21.1")
     compileOnly("top.theillusivec4.curios:curios-neoforge:9.2.0+1.21.1:api")
+
+    // JourneyMap API — только компиляция; в рантайме плагин грузится лишь если JourneyMap установлен.
+    compileOnly("info.journeymap:journeymap-api-neoforge:2.0.0-1.21.1-SNAPSHOT")
 
     // Зависимость от локального проекта SuperbWarfare (composite build)
     implementation("com.atsuishio:superbwarfare")

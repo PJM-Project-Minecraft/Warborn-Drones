@@ -56,6 +56,7 @@ public class AddonDroneItem extends Item {
         Entity entity = entityTypeSupplier.get().spawn(serverLevel, stack, context.getPlayer(), placePos,
                 MobSpawnType.SPAWN_EGG, true, !Objects.equals(clickedPos, placePos) && face == Direction.UP);
         if (entity != null) {
+            faceLikePlayer(entity, context.getPlayer());
             stack.shrink(1);
             level.gameEvent(context.getPlayer(), GameEvent.ENTITY_PLACE, clickedPos);
             applyLoadout(entity);
@@ -90,6 +91,7 @@ public class AddonDroneItem extends Item {
             return InteractionResultHolder.pass(stack);
         }
 
+        faceLikePlayer(entity, player);
         applyLoadout(entity);
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
@@ -98,6 +100,19 @@ public class AddonDroneItem extends Item {
         player.awardStat(Stats.ITEM_USED.get(this));
         level.gameEvent(player, GameEvent.ENTITY_PLACE, entity.position());
         return InteractionResultHolder.consume(stack);
+    }
+
+    /**
+     * EntityType#spawn выставляет случайный yaw (как спавн-яйцу), поэтому дрон ложится
+     * носом в произвольную сторону. Разворачиваем его по взгляду игрока.
+     */
+    private static void faceLikePlayer(Entity entity, Player player) {
+        if (player == null) {
+            return;
+        }
+        entity.setYRot(player.getYRot());
+        entity.yRotO = entity.getYRot();
+        entity.setYHeadRot(entity.getYRot());
     }
 
     private void applyLoadout(Entity entity) {

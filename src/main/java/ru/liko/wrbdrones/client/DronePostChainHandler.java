@@ -57,14 +57,19 @@ public class DronePostChainHandler {
     public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.level == null || mc.player == null) {
+            ru.liko.wrbdrones.client.integration.MinimapControl.setControlling(false);
             if (inFpvMode) {
                 disableFpv();
             }
             return;
         }
 
+        // Прячем стороннюю миникарту (JourneyMap), пока идёт управление дроном — no-op без мода.
+        boolean controlling = getActiveDrone(mc.player) != null;
+        ru.liko.wrbdrones.client.integration.MinimapControl.setControlling(controlling);
+
         // Cleanup if no drone is active
-        if (getActiveDrone(mc.player) == null) {
+        if (!controlling) {
             if (inFpvMode) {
                 disableFpv();
             }
