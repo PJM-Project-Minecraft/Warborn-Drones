@@ -52,7 +52,7 @@ Single source of truth: `util/SignalCalculator`. Returns a `SignalResult` record
 - **distance** — FPV uses `(1 − d/max)²` from zero; Mavic stays at 1.0 until `signal_loss_distance`, then quadratic falloff to `max_distance`. Pass `signalLossDistance = -1` for FPV behaviour.
 - **altitude** — `dy = drone.y − operator.y`. Linear interpolation between `altitude_penalty_floor` (multiplier `altitude_min_multiplier`) and `altitude_bonus_ceil` (multiplier 1.0).
 - **walls** — Amanatides–Woo voxel traversal from operator to `drone.getEyePosition()`. Hard occluders cost `wall_hard_per_block`; blocks in the `#wrbdrones:soft_obstacles` tag cost `wall_soft_per_block`; capped at `wall_max_total_attenuation` (95% by default), traversal limited to `wall_max_ray_blocks`.
-- **REB** — `RebUtils.getRebFactor(entity)` — distance falloff with configurable `jamming_curve_exponent` and `jamming_multiplier`.
+- **REB** — `RebUtils.getRebFactor(entity)` — distance falloff with configurable `jamming_curve_exponent` and `jamming_multiplier`. Three sources, strongest wins: `RebEntity` (`reb_radius`), `RebMiniEntity` (`reb_mini_radius`), and Warborn-Renewed's wearable REB backpack in the Curios `back` slot (`reb_backpack_radius`). The backpack is detected by the `warbornrenewed:reb_enabled` data component, not by item id — Curios calls live in `RebBackpackUtils` so its classes never load when either mod is absent.
 
 Final formula: `q = distance · altitude · (1 − walls) · (1 − reb)`, clamped to `[0,1]`.
 

@@ -1,7 +1,9 @@
 package ru.liko.wrbdrones.util;
 
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.neoforged.fml.ModList;
 import ru.liko.wrbdrones.config.ServerConfig;
 import ru.liko.wrbdrones.entity.RebEntity;
 import ru.liko.wrbdrones.entity.RebMiniEntity;
@@ -12,6 +14,10 @@ import ru.liko.wrbdrones.entity.RebMiniEntity;
  * Дист-нейтрален: вызывается и с клиента (HUD), и с сервера (авторитарная проверка).
  */
 public final class RebUtils {
+
+    /** Рюкзак РЭБ из Warborn-Renewed носится через Curios — оба мода опциональны. */
+    private static final boolean BACKPACKS_SUPPORTED = ModList.get().isLoaded("curios")
+            && ModList.get().isLoaded("warbornrenewed");
 
     private RebUtils() {
     }
@@ -49,7 +55,31 @@ public final class RebUtils {
             }
         }
 
+        maxFactor = Math.max(maxFactor, getBackpackFactor(entity));
+
         return Math.min(1.0, maxFactor);
+    }
+
+    /**
+     * Коэффициент от носимых игроками рюкзаков РЭБ (Warborn-Renewed).
+     * Кривая та же, что у стационарных РЭБ — радиус свой.
+     */
+    private static double getBackpackFactor(Entity entity) {
+        if (!BACKPACKS_SUPPORTED)
+            return 0.0;
+
+        double radius = ServerConfig.REB_BACKPACK_RADIUS.get();
+        double maxFactor = 0.0;
+
+        for (Player player : entity.level().getEntitiesOfClass(Player.class,
+                entity.getBoundingBox().inflate(radius), player -> !player.isSpectator())) {
+            double distance = Math.sqrt(entity.distanceToSqr(player));
+            if (distance <= radius && RebBackpackUtils.hasActiveBackpack(player)) {
+                maxFactor = Math.max(maxFactor, calculateFactor(distance, radius));
+            }
+        }
+
+        return maxFactor;
     }
 
     /**
