@@ -430,6 +430,19 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
         return false;
     }
 
+    /**
+     * Не входим в непрогруженный чанк: там сущность становится HIDDEN — перестаёт
+     * тикать и «застревает в чанке» до генерации (а если tickets к тому времени
+     * истекли — навсегда). Движение откладывается, пока preload-линия не догрузит чанк.
+     */
+    @Override
+    public void move(@NotNull MoverType type, @NotNull Vec3 movement) {
+        if (ru.liko.wrbdrones.util.ChunkEdgeGuard.shouldHoldMove(this, movement)) {
+            return;
+        }
+        super.move(type, movement);
+    }
+
     @Override
     public void tick() {
         this.oRoll = this.getRoll();

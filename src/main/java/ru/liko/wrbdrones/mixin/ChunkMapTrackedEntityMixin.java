@@ -1,9 +1,12 @@
 package ru.liko.wrbdrones.mixin;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
 import ru.liko.wrbdrones.util.PilotViewAnchors;
@@ -28,6 +31,10 @@ import ru.liko.wrbdrones.util.PilotViewAnchors;
 @Mixin(targets = "net.minecraft.server.level.ChunkMap$TrackedEntity")
 public class ChunkMapTrackedEntityMixin {
 
+    @Shadow
+    @Final
+    Entity entity;
+
     @Redirect(
             method = "updatePlayer(Lnet/minecraft/server/level/ServerPlayer;)V",
             at = @At(
@@ -43,5 +50,32 @@ public class ChunkMapTrackedEntityMixin {
             }
         }
         return player.position();
+    }
+
+    /**
+     * Не даёт дрону-якорю пропасть с клиента пилота из-за гонки с отправкой чанков.
+     *
+     * <p>Ванильный {@code updatePlayer} трекает сущность только если её текущий чанк уже
+     * ОТПРАВЛЕН игроку ({@code isChunkTracked}; под Moonrise — {@code isChunkSent}).
+     * Быстрый дрон постоянно въезжает в чанки, которые сервер ещё не успел дослать, —
+     * сущность мгновенно антрекается, клиент её удаляет, SBW-камера (чисто клиентская,
+     * ищет дрон в мире) падает обратно в тело пилота, и он видит своё окружение
+     * невыгруженным (поток чанков-то отцентрован на дроне). Для пары «пилот — его
+     * дрон-якорь» проверку пропускаем: клиент нормально рендерит сущности в ещё не
+     * присланных чанках, а чанки доедут следом.</p>
+     */
+    @ModifyExpressionValue(
+            method = "updatePlayer(Lnet/minecraft/server/level/ServerPlayer;)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ChunkMap;isChunkTracked(Lnet/minecraft/server/level/ServerPlayer;II)Z"
+            )
+    )
+    private boolean wrbdrones$alwaysTrackAnchorDrone(final boolean original, final ServerPlayer player) {
+        if (!original && !PilotViewAnchors.isEmpty()
+                && PilotViewAnchors.getAnchorDrone(player.getUUID()) == this.entity) {
+            return true;
+        }
+        return original;
     }
 }

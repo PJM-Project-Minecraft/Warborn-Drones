@@ -16,6 +16,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -655,6 +656,19 @@ public abstract class AddonDroneEntity extends DroneEntity {
      */
     protected boolean wrbdrones$usesSelfChunkLoading() {
         return true;
+    }
+
+    /**
+     * Не входим в непрогруженный чанк: там сущность становится HIDDEN — перестаёт
+     * тикать, пропадает с клиента (камера пилота падает в тело) и «застревает».
+     * Движение просто откладывается на тик-другой, пока tickets не догрузят чанк.
+     */
+    @Override
+    public void move(@NotNull MoverType type, @NotNull Vec3 movement) {
+        if (ru.liko.wrbdrones.util.ChunkEdgeGuard.shouldHoldMove(this, movement)) {
+            return;
+        }
+        super.move(type, movement);
     }
 
     /**
