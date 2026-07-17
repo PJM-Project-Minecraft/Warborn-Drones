@@ -111,11 +111,33 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
     private static final float LAUNCH_INITIAL_SPEED = 0.1f;
     private static final double RAYTRACE_SCALE = 1.5;
     private static final double CHUNK_PRELOAD_DISTANCE = 32.0;
-    private static final int ENTITY_TICKET_RADIUS = 2;
+    /** Горизонт упреждающей загрузки чанков: сколько тиков полёта грузить вперёд. */
+    private static final double CHUNK_PRELOAD_TICKS = 25.0;
+    /** Потолок дистанции упреждения (блоки) — ограничивает число форс-чанков у быстрого дрона. */
+    private static final double CHUNK_PRELOAD_MAX = 160.0;
+    /**
+     * Радиус 3: ENTITY_TICKING у центра И кольца 3x3, BLOCK_TICKING у 5x5, FULL у 7x7.
+     * С радиусом 2 тикал только центральный чанк: тикет ставится в handleChunkLoading
+     * ДО move этого тика, и вдали от игроков дрон, пересёкший границу, попадал в
+     * BLOCK_TICKING-чанк, переставал тикать и замерзал навсегда (перенести тикет за
+     * собой больше некому). Тикающее кольцо гарантирует, что пересечение границы не
+     * прерывает тик.
+     */
+    private static final int ENTITY_TICKET_RADIUS = 3;
+    /**
+     * Срок жизни tickets (тики). Раньше tickets снимались мгновенно за хвостом, а
+     * синусоида уклонения (период ~126 тиков) и развороты возвращали дрон в те же
+     * чанки — они выгружались и тут же грузились заново, у игроков вдоль маршрута
+     * «мигали» чанки и сущности. Теперь tickets истекают сами: 200 тиков покрывают
+     * полный период змейки, повторный addRegionTicket продлевает срок.
+     */
+    private static final int TICKET_LINGER_TICKS = 200;
+    /** Продление tickets без пересечения границы чанка — страховка от истечения на месте. */
+    private static final int TICKET_REFRESH_INTERVAL = 100;
     private static final TicketType<UUID> ENTITY_TICKET =
-            TicketType.create("wrbdrones_shahed_entity", Comparator.<UUID>naturalOrder());
+            TicketType.create("wrbdrones_shahed_entity", Comparator.<UUID>naturalOrder(), TICKET_LINGER_TICKS);
     private static final TicketType<UUID> PRELOAD_TICKET =
-            TicketType.create("wrbdrones_shahed_preload", Comparator.<UUID>naturalOrder());
+            TicketType.create("wrbdrones_shahed_preload", Comparator.<UUID>naturalOrder(), TICKET_LINGER_TICKS);
 
     // ── Энергомодель (калибровка; скорости в блоках/тик) ────────────
     private static final float THRUST_IDLE = 0.005f;
@@ -1003,56 +1025,65 @@ public class Shahed136Entity extends Entity implements GeoEntity, OBBEntity {
         // выходит за пределы loadedChunks). Без этого дрон может проехать через ahead-чанк
         // (входит в loadedChunks → обновление не срабатывает), а следующий за ним чанк
         // окажется незагруженным в момент перехода — дрон фризится на тик.
-        // С loadedCenter обновление идёт на каждый переход: новый чанк всегда уже в 5x5
+        // С loadedCenter обновление идёт на каждый переход: новый чанк всегда уже в 7x7
         // области прежнего центра, поэтому дрон не заходит в незагруженный чанк.
-        if (loadedCenter != null && loadedCenter.equals(currentChunk)) return;
+        // Каждые TICKET_REFRESH_INTERVAL тиков зона продлевается и без пересечения,
+        // чтобы tickets с таймаутом не истекли, пока дрон внутри одного чанка.
+        if (loadedCenter != null && loadedCenter.equals(currentChunk)
+                && launchTicks % TICKET_REFRESH_INTERVAL != 0) {
+            return;
+        }
 
         UUID id = this.getUUID();
-        ChunkPos previousCenter = loadedCenter;
-        Set<ChunkPos> previousPreload = loadedChunks == null ? Set.of() : loadedChunks;
 
-        // radius=2 даёт ENTITY_TICKING только центру, BLOCK_TICKING кольцу 3x3 и
-        // FULL кольцу 5x5. Сначала ставим новый центр, чтобы не оставлять дрон без
-        // тикающего чанка при пересечении границы.
+        // radius=3 даёт ENTITY_TICKING центру и кольцу 3x3 (см. ENTITY_TICKET_RADIUS),
+        // BLOCK_TICKING кольцу 5x5 и FULL кольцу 7x7.
         serverLevel.getChunkSource().addRegionTicket(
                 ENTITY_TICKET, currentChunk, ENTITY_TICKET_RADIUS, id);
 
         Set<ChunkPos> desiredPreload = new HashSet<>();
 
-        // Упреждающий FULL-only ticket помогает генерации подготовить следующий
-        // чанк, не добавляя ему block/entity ticking.
+        // Упреждающая загрузка вдоль вектора скорости. Один чанк на 32 блока вперёд давал
+        // всего ~2-5 тиков форы, а асинхронная генерация свежего чанка занимает десятки
+        // тиков — быстрый Шахед обгонял генерацию и фризился в несгенерированном чанке.
+        // Грузим НЕПРЕРЫВНУЮ линию чанков (шаг 16 блоков, без разрывов) на дистанцию,
+        // пропорциональную скорости (≈CHUNK_PRELOAD_TICKS тиков полёта), с потолком — тогда
+        // генерация всегда идёт с запасом и дрон входит в уже готовый чанк.
         Vec3 motion = this.getDeltaMovement();
         if (motion.lengthSqr() > 0.01) {
-            Vec3 ahead = this.position().add(motion.normalize().scale(CHUNK_PRELOAD_DISTANCE));
-            ChunkPos aheadChunk = new ChunkPos(Mth.floor(ahead.x) >> 4, Mth.floor(ahead.z) >> 4);
-            int dx = Math.abs(aheadChunk.x - currentChunk.x);
-            int dz = Math.abs(aheadChunk.z - currentChunk.z);
-            // Область 5x5 уже держит центральный ticket.
-            if (Math.max(dx, dz) > ENTITY_TICKET_RADIUS) {
-                desiredPreload.add(aheadChunk);
+            Vec3 dir = motion.normalize();
+            double speed = motion.length();
+            double leadBlocks = Mth.clamp(speed * CHUNK_PRELOAD_TICKS,
+                    CHUNK_PRELOAD_DISTANCE, CHUNK_PRELOAD_MAX);
+            for (double d = 16.0; d <= leadBlocks; d += 16.0) {
+                Vec3 p = this.position().add(dir.scale(d));
+                ChunkPos cp = new ChunkPos(Mth.floor(p.x) >> 4, Mth.floor(p.z) >> 4);
+                int dx = Math.abs(cp.x - currentChunk.x);
+                int dz = Math.abs(cp.z - currentChunk.z);
+                // Область 5x5 уже держит центральный ticket.
+                if (Math.max(dx, dz) > ENTITY_TICKET_RADIUS) {
+                    desiredPreload.add(cp);
+                }
             }
         }
 
-        // FULL-only tickets не тикают блоки/сущности и обновляются только по диффу.
+        // FULL-only tickets не тикают блоки/сущности. Повторный addRegionTicket для уже
+        // стоящего ticket лишь продлевает его срок — диффа не нужно.
         for (ChunkPos pos : desiredPreload) {
-            if (!previousPreload.contains(pos)) {
-                serverLevel.getChunkSource().addRegionTicket(PRELOAD_TICKET, pos, 0, id);
-            }
-        }
-        for (ChunkPos pos : previousPreload) {
-            if (!desiredPreload.contains(pos)) {
-                serverLevel.getChunkSource().removeRegionTicket(PRELOAD_TICKET, pos, 0, id);
-            }
+            serverLevel.getChunkSource().addRegionTicket(PRELOAD_TICKET, pos, 0, id);
         }
 
-        if (previousCenter != null) {
-            serverLevel.getChunkSource().removeRegionTicket(
-                    ENTITY_TICKET, previousCenter, ENTITY_TICKET_RADIUS, id);
-        }
+        // Старые tickets (прежний центр, ушедшая часть preload-линии) НЕ снимаем — они
+        // истекают сами через TICKET_LINGER_TICKS. Немедленное снятие за хвостом
+        // выгружало чанки, в которые змейка уклонения возвращала дрон через пару секунд.
         loadedCenter = currentChunk;
         loadedChunks = desiredPreload;
     }
 
+    /**
+     * Снимает последние поставленные tickets (центр + preload-линия). Хвостовые tickets
+     * за маршрутом не отслеживаются — они истекают сами через {@link #TICKET_LINGER_TICKS}.
+     */
     private void unloadChunks(ServerLevel serverLevel) {
         if (loadedChunks != null) {
             for (ChunkPos cp : loadedChunks) {

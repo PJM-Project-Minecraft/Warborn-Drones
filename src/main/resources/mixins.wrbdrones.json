@@ -4,13 +4,17 @@
   "package": "ru.liko.wrbdrones.mixin",
   "compatibilityLevel": "JAVA_21",
   "refmap": "mixins.wrbdrones.refmap.json",
+  "plugin": "ru.liko.wrbdrones.mixin.WrbdronesMixinPlugin",
   "mixins": [
     "VehicleDamageParticleMixin",
     "DroneDropMixin",
     "PlayerChunkSenderMixin",
     "ChunkMapPilotAnchorMixin",
     "ChunkMapTrackedEntityMixin",
-    "DistanceManagerRemovePlayerGuardMixin"
+    "DistanceManagerRemovePlayerGuardMixin",
+    "ServerGamePacketFloatingGuardMixin",
+    "MoonrisePlayerChunkLoaderMixin",
+    "MoonriseNearbyPlayersMixin"
   ],
   "client": [
     "DroneHudOverlayMixin",

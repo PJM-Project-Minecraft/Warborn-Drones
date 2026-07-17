@@ -695,6 +695,23 @@ public abstract class AddonDroneEntity extends DroneEntity {
             // тиком). setAnchor — только при свежей сессии.
             if (freshSession) {
                 ru.liko.wrbdrones.util.PilotViewAnchors.setAnchor(player.getUUID(), this); // центр обзора -> дрон
+                // Тело пилота: под Moonrise его player chunk loader переезжает на дрон (см.
+                // MoonrisePlayerChunkLoaderMixin), поэтому чанк тела держим отдельным
+                // region-ticket'ом. Под ванилью дублирует player-ticket — безвредно.
+                ru.liko.wrbdrones.util.DroneChunkLoader.keepEntityLoaded(player);
+                int viewRadius = ru.liko.wrbdrones.util.DroneChunkLoader.viewRadius(player);
+                if (ru.liko.wrbdrones.util.MoonriseCompat.isLoaded()) {
+                    // Moonrise сам грузит/шлёт чанки и радиус-пакеты по пер-игроковым дистанциям.
+                    ru.liko.wrbdrones.util.MoonriseCompat.setPilotViewRadius(player, viewRadius);
+                } else {
+                    // Ваниль: расширяем клиентский кэш чанков под drone_view_radius — без пакета
+                    // клиент хранит чанки лишь до serverViewDistance+3 и выбрасывает дальние.
+                    int serverRadius = player.server.getPlayerList().getViewDistance();
+                    if (viewRadius > serverRadius) {
+                        player.connection.send(
+                                new net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket(viewRadius));
+                    }
+                }
             }
         }
 
@@ -722,6 +739,14 @@ public abstract class AddonDroneEntity extends DroneEntity {
             // поток чанков/сущностей пилота обратно на его тело (см. миксины). Тело всё
             // время держало свой player-ticket, поэтому домашние чанки уже загружены.
             ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(player.getUUID());
+            // Снять ticket тела и вернуть обзор к дефолтам (расширялись в beginRemoteControl).
+            ru.liko.wrbdrones.util.DroneChunkLoader.releaseEntity(player.getUUID());
+            if (ru.liko.wrbdrones.util.MoonriseCompat.isLoaded()) {
+                ru.liko.wrbdrones.util.MoonriseCompat.resetPilotViewRadius(player);
+            } else {
+                player.connection.send(new net.minecraft.network.protocol.game.ClientboundSetChunkCacheRadiusPacket(
+                        player.server.getPlayerList().getViewDistance()));
+            }
             // Вернуть углы взгляда оператора (тело не двигалось, но камера была на дроне).
             var session = controlSession;
             if (session != null) {

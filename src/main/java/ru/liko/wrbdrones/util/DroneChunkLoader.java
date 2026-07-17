@@ -20,9 +20,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * Держит дрон тикающим и отдельно подготавливает FULL-чанки его клиентского обзора.
  *
  * <p>Для центра используется region-ticket радиуса {@value #ENTITY_TICKET_RADIUS}:
- * только чанк дрона получает {@code ENTITY_TICKING}, соседнее кольцо —
- * {@code BLOCK_TICKING}, внешнее — {@code FULL}. Чанки обзора получают независимые
- * tickets радиуса 0, то есть остаются {@code FULL} и не тикают сущности/блоки.</p>
+ * чанк дрона и кольцо 3x3 получают {@code ENTITY_TICKING} (см. комментарий у
+ * константы), дальше — {@code BLOCK_TICKING} и {@code FULL}. Чанки обзора получают
+ * независимые tickets радиуса 0, то есть остаются {@code FULL} и не тикают
+ * сущности/блоки.</p>
  *
  * <p>Ключ каждого ticket — UUID дрона. Поэтому два дрона в одном чанке не делят
  * один ticket и снятие загрузки у одного не выгружает второго. При движении набор
@@ -31,7 +32,15 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public final class DroneChunkLoader {
 
-    private static final int ENTITY_TICKET_RADIUS = 2;
+    /**
+     * Радиус 3: ENTITY_TICKING получают центр И кольцо 3x3 (уровень 31), BLOCK_TICKING —
+     * кольцо 5x5, FULL — 7x7. С радиусом 2 тикал только центральный чанк, и вдали от
+     * игроков дрон замерзал навсегда на первой же границе чанка: тикет ставится из
+     * baseTick ДО движения, дрон уходил в BLOCK_TICKING-кольцо, переставал тикать и уже
+     * никогда не переносил тикет за собой. С тикающим кольцом пересечение границы не
+     * прерывает тик, и тикет успевает переехать.
+     */
+    private static final int ENTITY_TICKET_RADIUS = 3;
 
     private static final TicketType<UUID> ENTITY_TICKET =
             TicketType.create("wrbdrones_drone_entity", Comparator.<UUID>naturalOrder());
@@ -46,6 +55,15 @@ public final class DroneChunkLoader {
     private static final Map<UUID, ViewHeld> VIEWS = new ConcurrentHashMap<>();
 
     private DroneChunkLoader() {}
+
+    /**
+     * Радиус обзора дрона для этого пилота: конфиг {@code drone_view_radius}, срезанный
+     * запрошенным клиентским view-distance (чанки дальше клиент всё равно не отрисует).
+     * Серверный view-distance намеренно НЕ участвует — в этом смысл фичи.
+     */
+    public static int viewRadius(final net.minecraft.server.level.ServerPlayer player) {
+        return Math.max(2, Math.min(player.requestedViewDistance(), ServerConfig.DRONE_VIEW_RADIUS.get()));
+    }
 
     /**
      * Держит тикающим только центральный чанк связанного дрона. Вызывается из

@@ -1,5 +1,6 @@
 package ru.liko.wrbdrones.mixin;
 
+import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -7,6 +8,7 @@ import net.minecraft.world.level.ChunkPos;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import ru.liko.wrbdrones.util.DroneChunkLoader;
 import ru.liko.wrbdrones.util.PilotViewAnchors;
 
 /**
@@ -60,5 +62,27 @@ public class ChunkMapPilotAnchorMixin {
             }
         }
         return player.chunkPosition();
+    }
+
+    /**
+     * Расширяет радиус трекинга чанков пилота до {@code drone_view_radius}, пробивая
+     * серверный view-distance: ванильный {@code getPlayerViewDistance} режет радиус по
+     * {@code serverViewDistance}, и вокруг дрона стримилось бы меньше, чем держат
+     * tickets {@link DroneChunkLoader}. Клиентский кэш под увеличенный радиус
+     * расширяется пакетом {@code ClientboundSetChunkCacheRadiusPacket} при входе в
+     * управление (см. {@code AddonDroneEntity#beginRemoteControl}).
+     */
+    @ModifyExpressionValue(
+            method = "updateChunkTracking(Lnet/minecraft/server/level/ServerPlayer;)V",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/server/level/ChunkMap;getPlayerViewDistance(Lnet/minecraft/server/level/ServerPlayer;)I"
+            )
+    )
+    private int wrbdrones$expandViewDistanceInUpdateChunkTracking(final int original, final ServerPlayer player) {
+        if (!PilotViewAnchors.isEmpty() && PilotViewAnchors.getAnchorDrone(player.getUUID()) != null) {
+            return Math.max(original, DroneChunkLoader.viewRadius(player));
+        }
+        return original;
     }
 }

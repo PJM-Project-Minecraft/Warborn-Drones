@@ -52,11 +52,31 @@ public class DroneChunkTickHandler {
 
         Map<UUID, ActiveDrone> activeDrones = new HashMap<>();
         for (ServerPlayer player : event.getServer().getPlayerList().getPlayers()) {
-            AddonDroneEntity drone = findLinkedDrone(player);
+            AddonDroneEntity monitorDrone = findMonitorDrone(player);
+            Entity anchorEntity = ru.liko.wrbdrones.util.PilotViewAnchors.getAnchorDrone(player.getUUID());
+
+            // Сторож застрявшего якоря. Штатно якорь снимает baseTick дрона, увидев
+            // Using=false — но замёрзший/выгруженный дрон не тикает, и якорь навечно
+            // держит поток чанков пилота на дроне: игрок ходит по белому невыгруженному
+            // миру. Серверный тик не зависит от тика дрона, поэтому снимаем здесь.
+            if (anchorEntity instanceof AddonDroneEntity anchorDrone && anchorDrone != monitorDrone) {
+                anchorDrone.endRemoteControl(player);
+                // Страховка: endRemoteControl при уже мёртвой сессии выходит рано,
+                // не трогая якорь. Снятие идемпотентно.
+                ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(player.getUUID());
+                anchorEntity = null;
+            }
+
+            AddonDroneEntity drone =
+                    anchorEntity instanceof AddonDroneEntity anchored ? anchored : monitorDrone;
             if (drone == null) {
                 continue;
             }
-            int viewDistance = Math.max(2, Math.min(serverViewDistance, player.requestedViewDistance()));
+            // Радиус tickets = радиус трекинга: ванильный clamp, расширенный drone_view_radius
+            // (см. ChunkMapPilotAnchorMixin) — иначе кромка трекинга останется без чанков.
+            int viewDistance = Math.max(
+                    Math.max(2, Math.min(serverViewDistance, player.requestedViewDistance())),
+                    DroneChunkLoader.viewRadius(player));
             activeDrones.merge(
                     drone.getUUID(),
                     new ActiveDrone(drone, viewDistance),
@@ -66,6 +86,11 @@ public class DroneChunkTickHandler {
             }
         }
         for (ActiveDrone active : activeDrones.values()) {
+            // Тикание дрона не должно зависеть от его собственного тика (baseTick ставит
+            // тикет ДО движения — замёрзший дрон сам себя уже не разбудит). Пока пилот
+            // держит управление, серверный тик продлевает тикет за него: это же
+            // «размораживает» дрон, застрявший в нетикающем чанке, при взятии монитора.
+            DroneChunkLoader.keepEntityLoaded(active.drone);
             DroneChunkLoader.keepLoaded(active.drone, active.viewDistance);
         }
         // Дрон, которого в этот тик никто не держит, теряет тикет и выгружается.
@@ -112,19 +137,12 @@ public class DroneChunkTickHandler {
     }
 
     /**
-     * Возвращает дрон, которым игрок сейчас управляет: либо есть якорь вида, либо в
-     * главной руке находится привязанный монитор с {@code Using=true}. Иначе
-     * {@code null}.
-     * Работой с чанками здесь не занимаемся — только идентификация дрона.
+     * Возвращает дрон, к которому в главной руке игрока привязан монитор с
+     * {@code Using=true}; иначе {@code null}. Условие то же, что в проверке
+     * {@code isUsingMonitor} в {@code AddonDroneEntity.baseTick} — сторож якоря выше
+     * опирается на их совпадение. Работой с чанками здесь не занимаемся.
      */
-    private static AddonDroneEntity findLinkedDrone(ServerPlayer player) {
-        // Активное пилотирование — дрон известен напрямую по якорю (ссылка на сущность).
-        Entity anchor = ru.liko.wrbdrones.util.PilotViewAnchors.getAnchorDrone(player.getUUID());
-        if (anchor instanceof AddonDroneEntity anchorDrone) {
-            return anchorDrone;
-        }
-
-        // Иначе — монитор в главной руке, привязанный к дрону.
+    private static AddonDroneEntity findMonitorDrone(ServerPlayer player) {
         ItemStack mainHand = player.getMainHandItem();
         if (!mainHand.is(ModItems.MONITOR.get())) {
             return null;
@@ -159,6 +177,8 @@ public class DroneChunkTickHandler {
             // больше нет в списке → дрон не попадёт в активные).
             ru.liko.wrbdrones.util.PilotViewAnchors.clearAnchor(serverPlayer.getUUID());
             ru.liko.wrbdrones.util.ChunkSendBooster.setBoosted(serverPlayer.getUUID(), false);
+            // Ticket тела пилота (ставится в beginRemoteControl, ключ — UUID игрока).
+            DroneChunkLoader.releaseEntity(serverPlayer.getUUID());
         }
     }
 }

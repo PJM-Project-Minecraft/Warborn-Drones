@@ -59,4 +59,19 @@ public final class ChunkSendBooster {
     public static int maxUnacknowledgedBatches() {
         return ServerConfig.CHUNK_SEND_BOOST_BATCHES.get();
     }
+
+    /**
+     * Нижний порог скорости отправки чанков для ВСЕХ игроков (chunks/tick); {@code 0} — выключен.
+     *
+     * <p>Причина та же, что у boost, но без дрона. {@code ChunkBatchSizeCalculator} на клиенте
+     * считает {@code 7мс / время_обработки_чанка}, где время меряется между пакетами batch-start
+     * и batch-finish в главном потоке — в него попадают кадры отрисовки. Просевший FPS ⇒ клиент
+     * просит меньше ⇒ {@code PlayerChunkSender} послушно шлёт по капле (наблюдалось 0.35 чанка/тик
+     * при ванильном старте 9.0) ⇒ игрок влетает в пустые чанки. Само не чинится: усреднение
+     * инерционное (вес старых сэмплов растёт до 49), помогает только реконнект — он пересоздаёт
+     * и калькулятор, и отправитель. Порог удерживает нижнюю границу, что бы клиент ни просил.</p>
+     */
+    public static float floorChunksPerTick() {
+        return ServerConfig.CHUNK_SEND_FLOOR_RATE.get().floatValue();
+    }
 }

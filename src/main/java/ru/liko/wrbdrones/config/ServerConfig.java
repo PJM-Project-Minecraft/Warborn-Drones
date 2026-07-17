@@ -33,6 +33,7 @@ public class ServerConfig {
     // REB конфигурация
     public static ModConfigSpec.DoubleValue REB_RADIUS;
     public static ModConfigSpec.DoubleValue REB_MINI_RADIUS;
+    public static ModConfigSpec.DoubleValue REB_BACKPACK_RADIUS;
     public static ModConfigSpec.DoubleValue REB_JAMMING_CURVE_EXPONENT;
     public static ModConfigSpec.DoubleValue REB_JAMMING_MULTIPLIER;
 
@@ -79,7 +80,9 @@ public class ServerConfig {
     public static ModConfigSpec.BooleanValue CHUNK_SEND_BOOST_ENABLED;
     public static ModConfigSpec.DoubleValue CHUNK_SEND_BOOST_RATE;
     public static ModConfigSpec.IntValue CHUNK_SEND_BOOST_BATCHES;
+    public static ModConfigSpec.DoubleValue CHUNK_SEND_FLOOR_RATE;
     public static ModConfigSpec.IntValue DRONE_CHUNK_RADIUS;
+    public static ModConfigSpec.IntValue DRONE_VIEW_RADIUS;
 
     public static void init(ModConfigSpec.Builder builder) {
         builder.push("fpv_drone");
@@ -161,6 +164,9 @@ public class ServerConfig {
 
         builder.comment("Radius of mini REB (Radio Electronic Warfare) interference effect in blocks");
         REB_MINI_RADIUS = builder.defineInRange("reb_mini_radius", 50.0, 5.0, 1000.0);
+
+        builder.comment("Radius of the wearable REB backpack from Warborn-Renewed, in blocks. Requires Curios.");
+        REB_BACKPACK_RADIUS = builder.defineInRange("reb_backpack_radius", 30.0, 0.0, 1000.0);
 
         builder.comment("REB jamming curve exponent. 1.0 = linear (strong on edges), 2.0 = quadratic (legacy soft).");
         REB_JAMMING_CURVE_EXPONENT = builder.defineInRange("jamming_curve_exponent", 1.0, 0.5, 4.0);
@@ -299,10 +305,29 @@ public class ServerConfig {
         CHUNK_SEND_BOOST_BATCHES = builder.defineInRange("boost_max_batches", 4, 1, 8);
 
         builder.comment(
-                "Безопасный предел радиуса FULL-only обзора дрона. Фактический радиус — минимум из",
-                "запрошенного игроком view-distance, серверного view-distance и этого значения.",
+                "Нижний порог скорости отправки чанков ДЛЯ ВСЕХ игроков, не только пилотов дронов.",
+                "Та же болезнь, что лечит boost, но у обычных игроков: темп диктует клиент",
+                "(ChunkBatchSizeCalculator = 7мс / время обработки чанка), а меряет он время между",
+                "пакетами batch-start и batch-finish в главном потоке — туда попадают кадры отрисовки.",
+                "Просевший FPS => клиент занижает запрос (наблюдалось 0.35 чанка/тик при норме 9) =>",
+                "сервер честно шлёт по капле => игрок летит в пустоту. Усреднение инерционное (вес",
+                "старых сэмплов до 49), поэтому само не восстанавливается — помогает лишь перезаход,",
+                "который обнуляет счётчик. Порог не даёт запросу упасть ниже указанного.",
+                "Ориентир по каналу: 3 чанка/тик ~ 600 КиБ/с на летящего игрока, 5 ~ 1 МиБ/с.",
+                "0 — выключить и вернуть чисто ванильное поведение.");
+        CHUNK_SEND_FLOOR_RATE = builder.defineInRange("floor_chunks_per_tick", 3.0, 0.0, 32.0);
+
+        builder.comment(
+                "Безопасный предел радиуса FULL-only обзора дрона (кап поверх drone_view_radius).",
                 "ENTITY_TICKING получает только центр дрона; чанки обзора генерируются, но не тикают.");
         DRONE_CHUNK_RADIUS = builder.defineInRange("drone_max_load_radius", 32, 2, 32);
+
+        builder.comment(
+                "Радиус обзора (в чанках) вокруг пилотируемого дрона, стримящийся пилоту.",
+                "Пробивает серверный view-distance: пилот видит вокруг дрона этот радиус, даже если",
+                "сервер стоит на 10. Режется запрошенным клиентским view-distance (нет смысла слать",
+                "чанки, которые клиент не отрисует) и drone_max_load_radius.");
+        DRONE_VIEW_RADIUS = builder.defineInRange("drone_view_radius", 20, 2, 32);
 
         builder.pop();
     }

@@ -75,6 +75,10 @@ public class PlayerChunkSenderMixin {
                 this.maxUnacknowledgedBatches = this.wrbdrones$restoreMaxUnacknowledgedBatches;
                 this.wrbdrones$boostActive = false;
             }
+            // Не пилот — но общий порог применим и к нему: клиент занижает запрос из-за
+            // просевшего FPS и без всякого дрона. Ставится ПОСЛЕ восстановления, иначе
+            // сброс boost'а вернул бы клиентское значение поверх порога.
+            wrbdrones$applyFloor();
             return;
         }
 
@@ -91,6 +95,19 @@ public class PlayerChunkSenderMixin {
         }
         // Лимит батчей — также ограничитель: vanilla возвращает его к 10 после ACK.
         this.maxUnacknowledgedBatches = ChunkSendBooster.maxUnacknowledgedBatches();
+    }
+
+    /**
+     * Общий нижний порог скорости отправки — для всех игроков, не только пилотов.
+     * Boost-путь его не зовёт: там скорость и так поднята до boost_chunks_per_tick, который
+     * заведомо не ниже порога. Значение клиента не трогаем, если оно уже выше.
+     */
+    @Unique
+    private void wrbdrones$applyFloor() {
+        final float floor = ChunkSendBooster.floorChunksPerTick();
+        if (floor > 0.0F && this.desiredChunksPerTick < floor) {
+            this.desiredChunksPerTick = floor;
+        }
     }
 
     /**
